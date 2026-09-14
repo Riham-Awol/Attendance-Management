@@ -1,0 +1,17 @@
+{
+  "name": "attendance-management",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Geofenced office attendance manager: GPS check-in/out PWA, lateness and absence tracking, leave approvals and Excel reports",
+  "scripts": {
+    "start": "npm start --prefix server",
+    "dev": "npm run dev --prefix server",
+    "seed": "npm run seed --prefix server",
+    "test": "npm test --prefix server",
+    "test:e2e": "npm run test:e2e --prefix server",
+    "icons": "node tools/make-icons.js",
+    "postinstall": "npm install --prefix server"
+  },
+  "engines": { "node": ">=18.0.0" },
+  "license": "MIT"
+}
