@@ -58,6 +58,8 @@ async function create(input) {
     position: input.position || null,
     phone: input.phone || null,
     shiftId: input.shiftId ? toId(input.shiftId) : null,
+    officeId: input.officeId ? toId(input.officeId) : null,
+    workingHours: input.workingHours || null,
     status: "active",
     mustChangePassword: input.mustChangePassword !== false,
     joinedAt: input.joinedAt || null,
@@ -93,8 +95,9 @@ async function update(id, patch, actor) {
 
   const set = { ...patch, updatedAt: new Date() };
   if (set.email) set.email = set.email.toLowerCase();
+  // An explicit null clears the assignment; an absent key leaves it alone.
   if (set.shiftId) set.shiftId = toId(set.shiftId);
-  if (set.shiftId === null) set.shiftId = null;
+  if (set.officeId) set.officeId = toId(set.officeId);
   delete set.password;
 
   const updated = await collection(COLLECTIONS.users).findOneAndUpdate(

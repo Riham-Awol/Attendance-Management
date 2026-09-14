@@ -58,10 +58,123 @@ export async function dashboardView(state) {
       rankCard("Most absences this month", data.month.mostAbsent, (row) => `${row.summary.absentDays} day${row.summary.absentDays === 1 ? "" : "s"}`),
     ]),
 
+    departmentCard(data.month),
+    peopleCard(data.month),
     pendingCard(data.pendingLeaves, state)
   );
 
   return container;
+}
+
+const money = (amount, currency) =>
+  `${Number(amount || 0).toLocaleString()} ${currency || ""}`.trim();
+
+/** The band, not the number: the score already has its own column. */
+const scorePill = (score, band) =>
+  el("span", { class: `pill ${(band || "no data").replace(/ /g, "-")}` },
+    score === null || score === undefined ? "no data" : band);
+
+/** How each department compares this month. */
+function departmentCard(month) {
+  const rows = month.departments || [];
+  const card = el("div", { class: "card" }, [
+    el("div", { class: "card-head" }, [
+      el("h2", {}, "Department scores"),
+      el("span", { class: "small muted" }, `${month.range.from} → today`),
+    ]),
+  ]);
+
+  if (rows.length === 0) {
+    card.append(empty("No departments to compare yet."));
+    return card;
+  }
+
+  card.append(
+    el("p", { class: "small muted" },
+      "Out of 100: attendance 60%, punctuality 30%, staying inside the monthly allowances 10%."),
+    el("div", { class: "table-wrap" },
+      el("table", {}, [
+        el("thead", {}, el("tr", {}, [
+          el("th", {}, "Department"),
+          el("th", { class: "num" }, "People"),
+          el("th", { class: "num" }, "Score"),
+          el("th", {}, "Rating"),
+          el("th", { class: "num" }, "Late"),
+          el("th", { class: "num" }, "Absent"),
+          el("th", { class: "num" }, "Permissions"),
+          el("th", { class: "num" }, "Deduction"),
+        ])),
+        el("tbody", {}, rows.map((row) =>
+          el("tr", {}, [
+            el("td", {}, el("strong", {}, row.department)),
+            el("td", { class: "num" }, String(row.employees)),
+            el("td", { class: "num mono" }, row.score === null ? "—" : String(row.score)),
+            el("td", {}, scorePill(row.score, row.band)),
+            el("td", { class: "num" }, String(row.lateDays)),
+            el("td", { class: "num" }, String(row.absentDays)),
+            el("td", { class: "num" }, String(row.permissionsUsed)),
+            el("td", { class: `num money${row.deduction > 0 ? " owed" : ""}` }, money(row.deduction, month.currency)),
+          ])
+        )),
+      ])
+    )
+  );
+  return card;
+}
+
+/** Every person's month: lateness, absence, permissions, score and cost. */
+function peopleCard(month) {
+  const rows = month.people || [];
+  const card = el("div", { class: "card" }, [
+    el("div", { class: "card-head" }, [
+      el("h2", {}, "Everyone this month"),
+      el("span", { class: "small muted" },
+        month.deductionTotal > 0 ? `${money(month.deductionTotal, month.currency)} deducted` : "No deductions"),
+    ]),
+  ]);
+
+  if (rows.length === 0) {
+    card.append(empty("Nobody to show yet."));
+    return card;
+  }
+
+  const allowance = (use) =>
+    el("span", { class: `allowance${use && use.exceeded ? " over" : ""}` },
+      use ? `${use.used}/${use.limit}` : "—");
+
+  card.append(
+    el("p", { class: "small muted" }, "Lowest score first, so whoever needs attention is at the top."),
+    el("div", { class: "table-wrap" },
+      el("table", {}, [
+        el("thead", {}, el("tr", {}, [
+          el("th", {}, "Employee"),
+          el("th", { class: "num" }, "Present"),
+          el("th", { class: "num" }, "Late"),
+          el("th", { class: "num" }, "Absent"),
+          el("th", { class: "num" }, "Permissions"),
+          el("th", { class: "num" }, "Score"),
+          el("th", {}, "Rating"),
+          el("th", { class: "num" }, "Deduction"),
+        ])),
+        el("tbody", {}, rows.map((row) =>
+          el("tr", {}, [
+            el("td", {}, [
+              el("strong", {}, row.name),
+              el("div", { class: "small muted" }, row.department || "—"),
+            ]),
+            el("td", { class: "num" }, String(row.presentDays)),
+            el("td", { class: "num" }, allowance(row.allowances && row.allowances.late)),
+            el("td", { class: "num" }, allowance(row.allowances && row.allowances.absent)),
+            el("td", { class: "num" }, allowance(row.allowances && row.allowances.permission)),
+            el("td", { class: "num mono" }, row.score === null ? "—" : String(row.score)),
+            el("td", {}, scorePill(row.score, row.scoreBand)),
+            el("td", { class: `num money${row.deduction > 0 ? " owed" : ""}` }, money(row.deduction, month.currency)),
+          ])
+        )),
+      ])
+    )
+  );
+  return card;
 }
 
 const legendSwatch = (color, label) =>
@@ -254,7 +367,10 @@ export async function employeesView(state) {
     el("option", { value: "inactive" }, "Inactive"),
   ]);
 
-  const shifts = (await api.shifts()).shifts;
+  const [shifts, offices] = await Promise.all([
+    api.shifts().then((r) => r.shifts),
+    api.offices().then((r) => r.offices),
+  ]);
 
   const load = async () => {
     mount(list, el("div", { class: "skeleton" }));
@@ -274,7 +390,7 @@ export async function employeesView(state) {
           ]),
           employee.role === "admin" ? el("span", { class: "pill" }, "Admin") : null,
           employee.status === "inactive" ? el("span", { class: "pill absent" }, "Inactive") : null,
-          el("button", { class: "btn-sm", type: "button", onclick: () => openEmployeeForm(state, shifts, employee, load) }, "Edit"),
+          el("button", { class: "btn-sm", type: "button", onclick: () => openEmployeeForm(state, shifts, offices, employee, load) }, "Edit"),
         ])
       )
     );
@@ -291,7 +407,7 @@ export async function employeesView(state) {
     el("div", { class: "card" }, [
       el("div", { class: "card-head" }, [
         el("h2", {}, "Employees"),
-        el("button", { class: "btn-primary btn-sm", type: "button", onclick: () => openEmployeeForm(state, shifts, null, load) }, "Add employee"),
+        el("button", { class: "btn-primary btn-sm", type: "button", onclick: () => openEmployeeForm(state, shifts, offices, null, load) }, "Add employee"),
       ]),
       el("div", { class: "row wrap", style: "margin-bottom:8px" }, [search, statusFilter]),
       list,
@@ -302,7 +418,7 @@ export async function employeesView(state) {
   return container;
 }
 
-async function openEmployeeForm(state, shifts, employee, onDone) {
+async function openEmployeeForm(state, shifts, offices, employee, onDone) {
   const isEdit = !!employee;
   const form = el("form", { class: "stack" });
 
@@ -324,13 +440,43 @@ async function openEmployeeForm(state, shifts, employee, onDone) {
   ]);
   shiftSelect.value = employee?.shiftId || "";
 
+  const officeSelect = el("select", { name: "officeId" }, [
+    el("option", { value: "" }, "Any office"),
+    ...offices.map((office) => el("option", { value: office._id }, office.name)),
+  ]);
+  officeSelect.value = employee?.officeId || "";
+
+  // The employee's own hours, layered over whichever shift they are on. Left
+  // blank, they simply follow the shift.
+  const hours = employee?.workingHours || {};
+  const customStart = el("input", { type: "time", value: hours.startTime || "" });
+  const customEnd = el("input", { type: "time", value: hours.endTime || "" });
+  const customGrace = el("input", { type: "number", min: 0, max: 240, value: hours.graceMinutes ?? "" });
+  const customDays = DAY_NAMES.map((label, index) => {
+    const input = el("input", { type: "checkbox", checked: (hours.workDays || []).includes(index) });
+    input.dataset.day = String(index);
+    return el("label", { class: "checkbox" }, [input, label]);
+  });
+
   form.append(
     field("Full name", name),
     field("Email", email),
     isEdit ? null : field("Temporary password", password),
     el("div", { class: "field-row" }, [field("Employee ID", code), field("Phone", phone)]),
     el("div", { class: "field-row" }, [field("Department", department), field("Position", position)]),
-    el("div", { class: "field-row" }, [field("Role", role), field("Shift", shiftSelect)])
+    el("div", { class: "field-row" }, [field("Role", role), field("Shift", shiftSelect)]),
+    field("Office", officeSelect, "Check-in is only accepted at this office. Leave as \u201cAny office\u201d to allow all of them."),
+    el("fieldset", {}, [
+      el("legend", {}, "Their own hours (optional)"),
+      el("p", { class: "small muted" }, "Leave blank to follow the shift. Anything set here applies to this person only."),
+      el("div", { class: "field-row" }, [
+        field("Starts", customStart),
+        field("Ends", customEnd),
+        field("Late grace (min)", customGrace),
+      ]),
+      el("p", { class: "small muted" }, "Working days — leave all unticked to keep the shift\u2019s days."),
+      el("div", { class: "row wrap" }, customDays),
+    ])
   );
 
   if (isEdit) {
@@ -392,6 +538,22 @@ async function openEmployeeForm(state, shifts, employee, onDone) {
           if (!form.reportValidity()) return;
           const data = Object.fromEntries(new FormData(form).entries());
           if (!data.shiftId) data.shiftId = null;
+          if (!data.officeId) data.officeId = null;
+
+          const pickedDays = customDays
+            .map((label) => label.querySelector("input"))
+            .filter((input) => input.checked)
+            .map((input) => Number(input.dataset.day));
+          const custom = {};
+          if (customStart.value) custom.startTime = customStart.value;
+          if (customEnd.value) custom.endTime = customEnd.value;
+          if (customGrace.value !== "") custom.graceMinutes = Number(customGrace.value);
+          if (pickedDays.length) custom.workDays = pickedDays;
+          if (custom.startTime && custom.endTime && custom.startTime === custom.endTime) {
+            toast("Start and end time cannot be the same", "error");
+            return;
+          }
+          data.workingHours = Object.keys(custom).length ? custom : null;
           try {
             if (isEdit) {
               delete data.password;
@@ -784,6 +946,7 @@ export async function settingsView(state) {
 
   container.append(
     organisationCard(settingsResponse.settings, state),
+    policyCard(settingsResponse.settings, state),
     officesCard(officesResponse.offices, state),
     shiftsCard(shiftsResponse.shifts, state),
     await holidaysCard(state)
@@ -841,6 +1004,53 @@ function organisationCard(settings, state) {
       el("label", { class: "checkbox" }, [noShow, "Email me who has not checked in"]),
       el("label", { class: "checkbox" }, [monthly, "Email the monthly report on the 1st"]),
     ]),
+  ]);
+}
+
+/** The rules that decide allowances and what an absence costs. */
+function policyCard(settings, state) {
+  const policy = settings.policy || {};
+  const lateLimit = el("input", { type: "number", min: 0, max: 31, value: policy.maxLateDaysPerMonth ?? 3 });
+  const absentLimit = el("input", { type: "number", min: 0, max: 31, value: policy.maxAbsentDaysPerMonth ?? 2 });
+  const permissionLimit = el("input", { type: "number", min: 0, max: 31, value: policy.maxPermissionsPerMonth ?? 2 });
+  const deduction = el("input", { type: "number", min: 0, step: "1", value: policy.absentDeductionPerDay ?? 500 });
+  const currency = el("input", { maxLength: 8, value: policy.currency || "ETB" });
+
+  const save = el("button", { class: "btn-primary btn-sm", type: "button" }, "Save");
+  save.addEventListener("click", async () => {
+    await withBusy(save, "Saving", async () => {
+      try {
+        const { settings: updated } = await api.updateSettings({
+          policy: {
+            maxLateDaysPerMonth: Number(lateLimit.value),
+            maxAbsentDaysPerMonth: Number(absentLimit.value),
+            maxPermissionsPerMonth: Number(permissionLimit.value),
+            absentDeductionPerDay: Number(deduction.value),
+            currency: currency.value.trim() || "ETB",
+          },
+        });
+        state.settings = { ...state.settings, ...updated };
+        toast("Rules saved", "ok");
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    });
+  });
+
+  return el("div", { class: "card" }, [
+    el("div", { class: "card-head" }, [el("h2", {}, "Rules"), save]),
+    el("p", { class: "small muted" }, "Allowances are counted per employee per calendar month."),
+    el("div", { class: "field-row" }, [
+      field("Late days allowed", lateLimit),
+      field("Absences allowed", absentLimit),
+      field("Permissions allowed", permissionLimit),
+    ]),
+    el("p", { class: "small muted" }, "Once the permission allowance is used up, an employee cannot request another until the next month begins."),
+    el("div", { class: "field-row" }, [
+      field("Deduction per absent day", deduction),
+      field("Currency", currency),
+    ]),
+    el("p", { class: "small muted" }, "An absent day is a working day with no check-in, no approved leave and no approved permission. Approved absences are never deducted."),
   ]);
 }
 

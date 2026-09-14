@@ -8,7 +8,7 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "seed": "node server/scripts/seed.js",
-    "test": "node --test server/tests/domain.test.js server/tests/api.test.js server/tests/serverless.test.js server/tests/config.test.js",
+    "test": "node --test server/tests/domain.test.js server/tests/policy.test.js server/tests/api.test.js server/tests/rules.test.js server/tests/serverless.test.js server/tests/config.test.js",
     "test:e2e": "node --test --test-timeout=180000 server/tests/browser.test.js",
     "test:all": "npm test && npm run test:e2e",
     "icons": "node tools/make-icons.js"

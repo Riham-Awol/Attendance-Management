@@ -26,6 +26,16 @@ const changePassword = Joi.object({
   newPassword: password.required(),
 });
 
+// Hours for one employee, layered over whichever shift they are on. Every
+// field is optional: set only what differs.
+const workingHours = Joi.object({
+  startTime: clock.allow(null),
+  endTime: clock.allow(null),
+  workDays: Joi.array().items(Joi.number().integer().min(0).max(6)).min(1).max(7).allow(null),
+  graceMinutes: Joi.number().integer().min(0).max(240).allow(null),
+  breakMinutes: Joi.number().integer().min(0).max(480).allow(null),
+}).allow(null);
+
 const employeeCreate = Joi.object({
   name: Joi.string().trim().min(2).max(120).required(),
   email: Joi.string().email().lowercase().required(),
@@ -36,6 +46,8 @@ const employeeCreate = Joi.object({
   position: Joi.string().trim().max(80).allow("", null),
   phone: Joi.string().trim().max(40).allow("", null),
   shiftId: objectId.allow(null),
+  officeId: objectId.allow(null),
+  workingHours,
   joinedAt: dateKey.allow(null),
   mustChangePassword: Joi.boolean().default(true),
 });
@@ -49,6 +61,8 @@ const employeeUpdate = Joi.object({
   position: Joi.string().trim().max(80).allow("", null),
   phone: Joi.string().trim().max(40).allow("", null),
   shiftId: objectId.allow(null),
+  officeId: objectId.allow(null),
+  workingHours,
   joinedAt: dateKey.allow(null),
   status: Joi.string().valid("active", "inactive"),
 }).min(1);
@@ -119,6 +133,13 @@ const settingsUpdate = Joi.object({
     sendNoShowAlert: Joi.boolean(),
     sendMonthlyReport: Joi.boolean(),
   }),
+  policy: Joi.object({
+    maxLateDaysPerMonth: Joi.number().integer().min(0).max(31),
+    maxAbsentDaysPerMonth: Joi.number().integer().min(0).max(31),
+    maxPermissionsPerMonth: Joi.number().integer().min(0).max(31),
+    absentDeductionPerDay: Joi.number().min(0).max(1000000),
+    currency: Joi.string().trim().max(8),
+  }),
 }).min(1);
 
 const rangeQuery = Joi.object({
@@ -165,6 +186,7 @@ module.exports = {
   coordinates,
   login,
   changePassword,
+  workingHours,
   employeeCreate,
   employeeUpdate,
   resetPassword,

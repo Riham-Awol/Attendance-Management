@@ -44,9 +44,23 @@ async function punchContext(user, at = new Date()) {
 /**
  * Confirm the punch is inside an office geofence, turning a failure into a
  * message the employee can act on ("you're 240 m away") rather than a bare 403.
+ *
+ * An employee assigned to a particular office is held to that one: someone
+ * posted to the branch should not be able to record a day by walking into head
+ * office. Leave an employee unassigned and any active office will do.
  */
-async function assertAtOffice(point, settings) {
-  const offices = await settingsService.listActiveOffices();
+async function assertAtOffice(point, settings, user) {
+  let offices = await settingsService.listActiveOffices();
+
+  if (user && user.officeId) {
+    const assigned = offices.filter((office) => String(office._id) === String(user.officeId));
+    if (assigned.length > 0) {
+      offices = assigned;
+    }
+    // If their office has been deactivated or deleted, fall through to the
+    // full list rather than making it impossible for them to check in at all.
+  }
+
   const result = geo.resolveOffice(point, offices, settings.geo);
   if (result.ok) return result;
 
@@ -81,7 +95,7 @@ async function checkIn(user, point, req) {
     );
   }
 
-  const located = await assertAtOffice(point, ctx.settings);
+  const located = await assertAtOffice(point, ctx.settings, user);
   const leave = await leaveService.approvedLeaveForDay(user._id, ctx.date);
   const holidays = await settingsService.holidaySet(ctx.date, ctx.date);
 
@@ -135,7 +149,7 @@ async function checkOut(user, point, req) {
     throw ApiError.conflict(`You already checked out at ${formatClock(record.checkOut.minutes)}.`);
   }
 
-  const located = await assertAtOffice(point, ctx.settings);
+  const located = await assertAtOffice(point, ctx.settings, user);
   const leave = await leaveService.approvedLeaveForDay(user._id, ctx.date);
   const holidays = await settingsService.holidaySet(ctx.date, ctx.date);
 
@@ -164,6 +178,13 @@ async function checkOut(user, point, req) {
   );
   if (!updated) throw ApiError.conflict("You already checked out.");
   return { record: updated, office: located.office, distance: located.distance };
+}
+
+/** The office an employee is posted to, if any, for the home screen. */
+async function assignedOfficeName(user) {
+  if (!user || !user.officeId) return null;
+  const offices = await settingsService.listOffices({ _id: settingsService.toId(user.officeId) });
+  return offices.length ? offices[0].name : null;
 }
 
 const findRecord = (userId, date) =>
@@ -199,6 +220,7 @@ async function todayFor(user) {
       to: formatClock(w.end),
       type: w.type,
     })),
+    office: await assignedOfficeName(user),
     canCheckIn: !record || !record.checkIn,
     canCheckOut: !!(record && record.checkIn && !record.checkOut),
     record: record || null,

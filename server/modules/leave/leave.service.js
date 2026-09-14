@@ -2,7 +2,8 @@
 
 const { collection, COLLECTIONS } = require("../../config/db");
 const { ApiError } = require("../../helpers/errors");
-const { eachDate, parseClock } = require("../../domain/time");
+const { eachDate, parseClock, monthRange } = require("../../domain/time");
+const settingsService = require("../settings/settings.service");
 const { toId } = require("../settings/settings.service");
 
 const LEAVE_TYPES = ["annual", "sick", "unpaid", "permission", "remote"];
@@ -25,6 +26,7 @@ async function createRequest(user, input) {
   }
 
   await assertNoOverlap(user._id, input);
+  if (isPartial(input)) await assertPermissionAllowance(user._id, input.fromDate);
 
   const doc = {
     userId: user._id,
@@ -72,6 +74,47 @@ async function assertNoOverlap(userId, input) {
   }
 
   throw ApiError.conflict("You already have a request covering those dates");
+}
+
+/**
+ * Hourly permissions are rationed per calendar month.
+ *
+ * Pending requests count against the allowance as well as approved ones —
+ * otherwise someone could queue up a month's worth and force an admin to be
+ * the one who says no. A rejected or withdrawn request gives its slot back.
+ */
+async function assertPermissionAllowance(userId, date) {
+  const { policy } = await settingsService.getSettings();
+  const limit = policy.maxPermissionsPerMonth;
+  if (!Number.isFinite(limit) || limit < 0) return;
+
+  const { used, month } = await permissionsUsedIn(userId, date);
+  if (used >= limit) {
+    throw ApiError.conflict(
+      `You have already used ${used} of ${limit} permission requests for ${month}. The next one can be requested from the start of next month.`,
+      { used, limit, month }
+    );
+  }
+}
+
+/** Permissions already spent in the month containing `date`. */
+async function permissionsUsedIn(userId, date) {
+  const month = monthRange(date);
+  const used = await collection(COLLECTIONS.leaves).countDocuments({
+    userId: toId(userId),
+    scope: "partial",
+    status: { $in: [LEAVE_STATUS.PENDING, LEAVE_STATUS.APPROVED] },
+    fromDate: { $gte: month.from, $lte: month.to },
+  });
+  return { used, month: month.from.slice(0, 7), range: month };
+}
+
+/** What the employee has left this month, for the request form. */
+async function permissionAllowance(userId, date) {
+  const { policy } = await settingsService.getSettings();
+  const { used, month } = await permissionsUsedIn(userId, date);
+  const limit = policy.maxPermissionsPerMonth;
+  return { used, limit, remaining: Math.max(0, limit - used), month };
 }
 
 async function decide(leaveId, admin, status, note) {
@@ -187,5 +230,7 @@ module.exports = {
   count,
   approvedLeaveIndex,
   approvedLeaveForDay,
+  permissionsUsedIn,
+  permissionAllowance,
   isPartial,
 };

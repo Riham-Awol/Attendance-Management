@@ -34,6 +34,33 @@ API, the tests and the deployment.
 - Your month at a glance: a colour-coded calendar, hours worked, lateness.
 - Request leave (whole days) or permission (a few hours), and see the decision.
 
+**Rules and scoring**
+- Each employee is assigned an office (check-in is only accepted there), a
+  shift, and optionally their own hours layered over that shift.
+- Monthly allowances for lateness, absence and hourly permissions. Once the
+  permission allowance is spent (2 by default) the employee cannot request
+  another until the next month — pending requests count, rejected ones give
+  their slot back.
+- An **absent day** is a working day with no check-in, no approved leave and no
+  approved permission. Each one deducts a configurable amount (500 ETB by
+  default) from pay. Approved absences never deduct.
+- Every employee and department gets a score out of 100:
+
+  | Component | Weight | Meaning |
+  |---|---|---|
+  | Attendance | 60% | Working days present, out of days expected |
+  | Punctuality | 30% | Days arrived on time, out of days present |
+  | Compliance | 10% | Stayed inside the monthly allowances |
+
+  A department's score is the **mean of its members' scores**, not of their
+  pooled days — so a team of thirty and a team of three are comparable, and
+  one person's long absence is not diluted by a large team. Employees with
+  nothing expected of them in the period (new joiners, whole month on leave)
+  are left out rather than scored zero.
+
+- Employees see **department scores only**. They can see their own attendance
+  and how each department is doing; they can never see a colleague's record.
+
 **For admins**
 - A live dashboard: who is on site right now, who has not arrived, a 14-day
   attendance chart, and this month's worst lateness and absence.
@@ -44,7 +71,9 @@ API, the tests and the deployment.
 - Reports by employee and by department, for any date range, exportable as
   Excel (three sheets) or CSV.
 - Configure office locations and radius, shifts, working days, grace periods,
-  and public holidays.
+  public holidays, monthly allowances and the deduction per absent day.
+- A per-person table of lateness, absence, permissions, score and deduction,
+  worst first, and a department comparison.
 - Automatic emails: who has not checked in today, and a full monthly report.
 
 ## How attendance is decided

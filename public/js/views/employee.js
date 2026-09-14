@@ -135,6 +135,9 @@ export async function homeView(state) {
       ])
     );
 
+    if (today.office) {
+      rows.push(el("p", { class: "small muted" }, `You check in at ${today.office}.`));
+    }
     if (today.holidayName) rows.push(el("p", { class: "small muted" }, `Today is ${today.holidayName}.`));
     if (today.onLeave) rows.push(el("p", { class: "small muted" }, `You are on approved ${LEAVE_LABELS[today.leaveType] || "leave"} today.`));
     for (const permission of today.permissions) {
@@ -331,9 +334,21 @@ export async function myLeaveView(state) {
   const container = el("div", { class: "stack" });
   const list = el("div", {});
 
+  const allowanceLine = el("p", { class: "small muted" });
+
   const load = async () => {
     mount(list, el("div", { class: "skeleton" }));
-    const { leaves } = await api.myLeaves();
+    const { leaves, permissionAllowance } = await api.myLeaves();
+
+    if (permissionAllowance) {
+      const { used, limit, remaining, month } = permissionAllowance;
+      allowanceLine.textContent =
+        remaining > 0
+          ? `Hourly permissions: ${used} of ${limit} used this month — ${remaining} left.`
+          : `You have used all ${limit} hourly permissions for ${month}. The next one can be requested from the start of next month.`;
+      allowanceLine.className = remaining > 0 ? "small muted" : "small";
+      allowanceLine.style.color = remaining > 0 ? "" : "var(--bad)";
+    }
     if (leaves.length === 0) {
       mount(list, empty("No requests yet.", "Ask for leave or a few hours' permission and it will appear here."));
       return;
@@ -374,6 +389,7 @@ export async function myLeaveView(state) {
         el("h2", {}, "My requests"),
         el("button", { class: "btn-primary btn-sm", type: "button", onclick: () => openLeaveForm(state, load) }, "New request"),
       ]),
+      allowanceLine,
       list,
     ])
   );
@@ -469,6 +485,65 @@ async function openLeaveForm(state, onDone) {
     toast("Request sent for approval", "ok");
     onDone();
   }
+}
+
+/* ── Department scoreboard ───────────────────────────────────────────── */
+
+/**
+ * What an employee can see of the rest of the company: how each department is
+ * doing. Never an individual — the server does not send colleague data here,
+ * and this screen has none to show.
+ */
+export async function scoreboardView() {
+  const container = el("div", { class: "stack" });
+  const board = await api.departmentScores();
+
+  const card = el("div", { class: "card" }, [
+    el("div", { class: "card-head" }, [
+      el("h2", {}, "Department scores"),
+      el("span", { class: "small muted" }, board.month),
+    ]),
+    el("p", { class: "small muted" },
+      "Out of 100: attendance 60%, punctuality 30%, staying inside the monthly allowances 10%."),
+  ]);
+
+  if (!board.departments.length) {
+    card.append(empty("No scores yet this month."));
+    container.append(card);
+    return container;
+  }
+
+  const best = Math.max(...board.departments.map((d) => d.score ?? 0), 1);
+  for (const row of board.departments) {
+    card.append(
+      el("div", { style: "padding:12px 0;border-bottom:1px solid var(--border)" }, [
+        el("div", { class: "row spread" }, [
+          el("div", {}, [
+            el("strong", {}, row.department),
+            el("div", { class: "small muted" }, `${row.employees} ${row.employees === 1 ? "person" : "people"}`),
+          ]),
+          el("div", { class: "score" }, [
+            el("b", {}, row.score === null ? "—" : String(row.score)),
+            el("span", { class: `pill ${(row.band || "no-data").replace(/ /g, "-")}` }, row.band),
+          ]),
+        ]),
+        el("div", { class: "bar", style: "margin-top:8px" },
+          el("i", { style: `width:${Math.round(((row.score ?? 0) / best) * 100)}%` })),
+      ])
+    );
+  }
+
+  container.append(
+    card,
+    el("div", { class: "card" }, [
+      el("h3", {}, "How the score works"),
+      el("p", { class: "small muted" },
+        "Attendance is the share of working days you were present for. Punctuality is the share of those days you arrived on time. Compliance is whether the department stayed inside its monthly allowances for lateness, absence and permissions."),
+      el("p", { class: "small muted" },
+        "Only department totals are shown here. Individual attendance is visible to you and your administrators only."),
+    ])
+  );
+  return container;
 }
 
 /* ── Profile ─────────────────────────────────────────────────────────── */

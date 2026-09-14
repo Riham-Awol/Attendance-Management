@@ -5,6 +5,8 @@ const { STATUS } = require("../../domain/attendance-rules");
 const { summarizeDays, rankBy } = require("../../domain/reports");
 const { dateKey, addDays, monthRange, eachDate } = require("../../domain/time");
 const attendanceService = require("../attendance/attendance.service");
+const reportsService = require("../reports/reports.service");
+const { monthRange: monthRangeOf } = require("../../domain/time");
 const employeesService = require("../employees/employees.service");
 const leaveService = require("../leave/leave.service");
 const settingsService = require("../settings/settings.service");
@@ -60,6 +62,14 @@ async function overview() {
     }
   }
 
+  // The month's figures come from the report builder so the dashboard, the
+  // reports screen and the spreadsheet are all reading the same numbers.
+  const monthReport = await reportsService.buildReport({
+    from: month.from,
+    to: today,
+    includeDays: false,
+  });
+
   const monthSummaries = monthRows.map(({ employee, days }) => ({
     employee: { _id: employee._id, name: employee.name, department: employee.department },
     summary: summarizeDays(days),
@@ -85,6 +95,30 @@ async function overview() {
       totals: summarizeDays(monthRows.flatMap((r) => r.days)),
       worstLateness: rankBy(monthSummaries, "lateMinutes"),
       mostAbsent: rankBy(monthSummaries, "absentDays"),
+      // One row per person: late, absent, permissions, what it costs and how
+      // they score — the breakdown a manager actually acts on.
+      people: monthReport.employees
+        .map((row) => ({
+          _id: row.employee._id,
+          name: row.employee.name,
+          department: row.employee.department,
+          lateDays: row.summary.lateDays,
+          lateMinutes: row.summary.lateMinutes,
+          absentDays: row.summary.absentDays,
+          permissionsUsed: row.summary.permissionsUsed,
+          leaveDays: row.summary.leaveDays,
+          presentDays: row.summary.presentDays,
+          attendanceRate: row.summary.attendanceRate,
+          score: row.summary.score,
+          scoreBand: row.summary.scoreBand,
+          allowances: row.summary.allowances,
+          deduction: row.summary.deduction.amount,
+        }))
+        .sort((a, b) => (a.score ?? 101) - (b.score ?? 101)),
+      departments: monthReport.departmentScores,
+      deductionTotal: monthReport.deductionTotal,
+      currency: monthReport.currency,
+      policy: monthReport.policy,
     },
     pendingLeaves: await decorateLeaves(pendingLeaves),
     pendingLeaveCount: pendingLeaves.length,
@@ -133,3 +167,40 @@ async function decorateLeaves(leaves) {
 }
 
 module.exports = { overview, decorateLeaves, TREND_DAYS };
+
+
+/**
+ * What an employee may see of everyone else: department scores, and nothing
+ * that identifies a colleague.
+ *
+ * Built by stripping the report down to its department rows rather than by
+ * filtering on the way out, so there is no individual data in the response to
+ * leak by accident — no names, no counts small enough to single anyone out
+ * beyond the department's own headcount.
+ */
+async function departmentScoreboard() {
+  const settings = await settingsService.getSettings();
+  const today = dateKey(new Date(), settings.timeZone);
+  const month = monthRangeOf(today);
+
+  const report = await reportsService.buildReport({
+    from: month.from,
+    to: today,
+    includeDays: false,
+  });
+
+  return {
+    month: month.from.slice(0, 7),
+    range: { from: month.from, to: today },
+    departments: report.departmentScores.map((row) => ({
+      department: row.department,
+      employees: row.employees,
+      score: row.score,
+      band: row.band,
+      attendance: row.attendance,
+      punctuality: row.punctuality,
+    })),
+  };
+}
+
+module.exports.departmentScoreboard = departmentScoreboard;

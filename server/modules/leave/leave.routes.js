@@ -9,7 +9,8 @@ const { requireAuth, requireAdmin, audit } = require("../../helpers/auth");
 const service = require("./leave.service");
 const { decorateLeaves } = require("../dashboard/dashboard.service");
 const attendanceService = require("../attendance/attendance.service");
-const { eachDate } = require("../../domain/time");
+const { eachDate, dateKey } = require("../../domain/time");
+const settingsService = require("../settings/settings.service");
 const { collection, COLLECTIONS } = require("../../config/db");
 
 const router = express.Router();
@@ -28,7 +29,14 @@ router.post(
 router.get(
   "/me",
   asyncHandler(async (req, res) => {
-    res.json({ leaves: await service.list({ userId: req.user._id }) });
+    const timeZone = await settingsService.timeZone();
+    res.json({
+      leaves: await service.list({ userId: req.user._id }),
+      permissionAllowance: await service.permissionAllowance(
+        req.user._id,
+        dateKey(new Date(), timeZone)
+      ),
+    });
   })
 );
 

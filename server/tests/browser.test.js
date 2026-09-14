@@ -364,9 +364,19 @@ test("the app is branded weTech Attendance Management", async () => {
     assert.equal(manifest.name, "weTech Attendance Management");
     assert.equal(manifest.short_name, "weTech Attendance");
 
-    // The sign-in card names the product, not a generic word.
-    await page.getByRole("heading", { name: "weTech" }).waitFor({ timeout: 10000 });
+    // The sign-in card carries the weTech wordmark and names the product.
+    const wordmark = page.locator(".auth .wordmark");
+    await wordmark.waitFor({ timeout: 10000 });
+    assert.equal(await wordmark.getAttribute("alt"), "weTech");
     await page.getByText("Attendance Management").first().waitFor();
+
+    // The mark is a real, served asset, not a broken image.
+    const logo = await page.evaluate(async () => {
+      const response = await fetch("/icons/wetech-logo.svg");
+      return { status: response.status, type: response.headers.get("content-type") };
+    });
+    assert.equal(logo.status, 200);
+    assert.match(logo.type, /svg/);
   } finally {
     await context.close();
   }

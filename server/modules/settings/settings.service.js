@@ -6,6 +6,7 @@ const env = require("../../config/env");
 const { collection, COLLECTIONS } = require("../../config/db");
 const { ApiError } = require("../../helpers/errors");
 const { DEFAULT_SHIFT } = require("../../domain/attendance-rules");
+const { DEFAULT_POLICY } = require("../../domain/policy");
 const { isValidTimeZone } = require("../../domain/time");
 
 const SETTINGS_ID = "org";
@@ -21,6 +22,7 @@ const DEFAULT_SETTINGS = {
     sendNoShowAlert: true,
     sendMonthlyReport: true,
   },
+  policy: { ...DEFAULT_POLICY },
 };
 
 /** The org settings document, created with sane defaults on first read. */
@@ -32,6 +34,9 @@ async function getSettings() {
       ...found,
       geo: { ...DEFAULT_SETTINGS.geo, ...(found.geo || {}) },
       alerts: { ...DEFAULT_SETTINGS.alerts, ...(found.alerts || {}) },
+      // Merged rather than replaced so a settings document written before a
+      // rule existed still answers for it.
+      policy: { ...DEFAULT_SETTINGS.policy, ...(found.policy || {}) },
     };
   }
   await collection(COLLECTIONS.settings).updateOne(
@@ -52,6 +57,7 @@ async function updateSettings(patch) {
     ...patch,
     geo: { ...current.geo, ...(patch.geo || {}) },
     alerts: { ...current.alerts, ...(patch.alerts || {}) },
+    policy: { ...current.policy, ...(patch.policy || {}) },
     updatedAt: new Date(),
   };
   delete next._id;
@@ -135,11 +141,32 @@ async function getDefaultShift() {
  * newly created employee is never left without working hours.
  */
 async function getShiftForUser(user) {
+  let shift = null;
   if (user && user.shiftId) {
-    const shift = await collection(COLLECTIONS.shifts).findOne({ _id: toId(user.shiftId) });
-    if (shift) return shift;
+    shift = await collection(COLLECTIONS.shifts).findOne({ _id: toId(user.shiftId) });
   }
-  return getDefaultShift();
+  if (!shift) shift = await getDefaultShift();
+  return applyWorkingHours(shift, user);
+}
+
+/**
+ * An employee's own hours, if an admin has set them, layered over the shift.
+ *
+ * Kept as a thin override rather than a private shift per person: everyone on
+ * "Standard" still moves together when the standard changes, and only the
+ * fields actually customised differ.
+ */
+function applyWorkingHours(shift, user) {
+  const custom = user && user.workingHours;
+  if (!custom) return shift;
+
+  const overrides = {};
+  for (const key of ["startTime", "endTime", "workDays", "graceMinutes", "breakMinutes"]) {
+    if (custom[key] !== undefined && custom[key] !== null) overrides[key] = custom[key];
+  }
+  if (Object.keys(overrides).length === 0) return shift;
+
+  return { ...shift, ...overrides, name: `${shift.name || "Default"} (adjusted)`, customised: true };
 }
 
 /** Shifts for many users at once, keyed by user id — avoids N+1 in reports. */
@@ -153,7 +180,8 @@ async function getShiftMap(users) {
 
   const map = new Map();
   for (const user of users) {
-    map.set(String(user._id), byId.get(String(user.shiftId)) || fallback);
+    const base = byId.get(String(user.shiftId)) || fallback;
+    map.set(String(user._id), applyWorkingHours(base, user));
   }
   return map;
 }
@@ -208,6 +236,7 @@ module.exports = {
   deleteShift,
   getDefaultShift,
   getShiftForUser,
+  applyWorkingHours,
   getShiftMap,
   listHolidays,
   createHoliday,

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="weTech">
+  <!--
+    Two ribbons, each a V, overlapping to read as a W — the way the weTech
+    mark is built. Round caps and joins keep it legible at favicon size, and
+    the brighter ribbon crosses in front where they meet.
+  -->
+  <defs>
+    <linearGradient id="wetech-deep" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#1f5fd0" />
+      <stop offset="1" stop-color="#2196ee" />
+    </linearGradient>
+    <linearGradient id="wetech-bright" x1="0.9" y1="0" x2="0.1" y2="1">
+      <stop offset="0" stop-color="#28bdf8" />
+      <stop offset="1" stop-color="#1c86e6" />
+    </linearGradient>
+  </defs>
+
+  <!-- Back ribbon: the left V, rising to the centre peak. -->
+  <path d="M18 28 L38 82 Q42 92 48 82 L68 30"
+        fill="none" stroke="url(#wetech-deep)" stroke-width="14"
+        stroke-linecap="round" stroke-linejoin="round" />
+
+  <!-- Front ribbon: the right V, crossing the first and flicking outward. -->
+  <path d="M52 30 L72 82 Q76 92 82 82 L96 46 Q99 34 108 34"
+        fill="none" stroke="url(#wetech-bright)" stroke-width="14"
+        stroke-linecap="round" stroke-linejoin="round" />
+</svg>

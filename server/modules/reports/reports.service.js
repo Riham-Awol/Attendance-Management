@@ -4,6 +4,9 @@ const XLSX = require("xlsx");
 
 const { ApiError } = require("../../helpers/errors");
 const { summarizeDays, groupByDepartment, rankBy } = require("../../domain/reports");
+const policyRules = require("../../domain/policy");
+const settingsService = require("../settings/settings.service");
+const leaveService = require("../leave/leave.service");
 const { formatDuration, eachDate, isDateKey } = require("../../domain/time");
 const attendanceService = require("../attendance/attendance.service");
 const employeesService = require("../employees/employees.service");
@@ -42,6 +45,11 @@ async function buildReport({ from, to, userId, department, includeInactive = fal
   const users = await scopedEmployees({ userId, department, includeInactive });
   const built = await attendanceService.buildDays({ users, from, to });
 
+  const { policy } = await settingsService.getSettings();
+  // Permissions are rationed per calendar month, so they are counted from the
+  // requests themselves rather than from the attendance days.
+  const permissionCounts = await permissionsPerEmployee(users, from, to);
+
   const rows = built.map(({ employee, shift, days }) => ({
     employee: {
       _id: employee._id,
@@ -53,7 +61,7 @@ async function buildReport({ from, to, userId, department, includeInactive = fal
       status: employee.status,
     },
     shift: { name: shift.name || "Default", startTime: shift.startTime, endTime: shift.endTime },
-    summary: summarizeDays(days),
+    summary: withPolicy(summarizeDays(days), permissionCounts.get(String(employee._id)) || 0, policy),
     days,
   }));
 
@@ -70,6 +78,10 @@ async function buildReport({ from, to, userId, department, includeInactive = fal
     totals: summarizeDays(rows.flatMap((row) => row.days)),
     worstLateness: rankBy(rows, "lateMinutes").map(slim),
     mostAbsent: rankBy(rows, "absentDays").map(slim),
+    policy,
+    departmentScores: scoreDepartments(rows, policy),
+    deductionTotal: rows.reduce((sum, row) => sum + row.summary.deduction.amount, 0),
+    currency: policy.currency,
   };
 
   // The summary screen draws totals only; sending 30 days per employee would
@@ -79,6 +91,60 @@ async function buildReport({ from, to, userId, department, includeInactive = fal
   }
 
   return report;
+}
+
+/**
+ * Attach the policy view of a summary: permissions used, allowances spent,
+ * what the absences cost, and the score. Kept together in one place so the
+ * screen, the export and the employee's own view cannot disagree.
+ */
+function withPolicy(summary, permissionsUsed, policy) {
+  const enriched = { ...summary, permissionsUsed };
+  enriched.allowances = policyRules.allowanceUse(enriched, policy);
+  enriched.deduction = policyRules.deduction(enriched, policy);
+  const scored = policyRules.scoreFor(enriched, policy);
+  enriched.score = scored.score;
+  enriched.scoreBand = policyRules.band(scored.score);
+  enriched.scoreParts = scored;
+  return enriched;
+}
+
+/** How many permission requests each employee made inside the range. */
+async function permissionsPerEmployee(users, from, to) {
+  const counts = new Map();
+  if (users.length === 0) return counts;
+
+  const leaves = await leaveService.list(
+    { from, to, type: "permission", status: leaveService.LEAVE_STATUS.APPROVED },
+    { limit: 5000 }
+  );
+  for (const leave of leaves) {
+    const key = String(leave.userId);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return counts;
+}
+
+/** One score per department, ordered best first. */
+function scoreDepartments(rows, policy) {
+  const byDepartment = new Map();
+  for (const row of rows) {
+    const key = row.employee.department || "Unassigned";
+    if (!byDepartment.has(key)) byDepartment.set(key, []);
+    byDepartment.get(key).push(row);
+  }
+
+  return [...byDepartment.entries()]
+    .map(([department, members]) => ({
+      department,
+      employees: members.length,
+      ...policyRules.scoreDepartment(members.map((m) => m.summary), policy),
+      lateDays: members.reduce((sum, m) => sum + m.summary.lateDays, 0),
+      absentDays: members.reduce((sum, m) => sum + m.summary.absentDays, 0),
+      permissionsUsed: members.reduce((sum, m) => sum + m.summary.permissionsUsed, 0),
+      deduction: members.reduce((sum, m) => sum + m.summary.deduction.amount, 0),
+    }))
+    .sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
 }
 
 const slim = (row) => ({
@@ -133,6 +199,11 @@ const SUMMARY_COLUMNS = [
   ["Overtime hours", (r) => r.summary.overtimeHours],
   ["Attendance %", (r) => r.summary.attendanceRate],
   ["Punctuality %", (r) => r.summary.punctualityRate],
+  ["Permissions used", (r) => r.summary.permissionsUsed],
+  ["Allowance exceeded", (r) => (r.summary.allowances.anyExceeded ? "yes" : "")],
+  ["Score", (r) => (r.summary.score === null ? "" : r.summary.score)],
+  ["Rating", (r) => r.summary.scoreBand],
+  ["Deduction", (r) => r.summary.deduction.amount],
 ];
 
 const DETAIL_COLUMNS = [
@@ -187,16 +258,16 @@ function toXlsx(report) {
   XLSX.utils.book_append_sheet(book, detailSheet, "Daily detail");
 
   const deptRows = [
-    ["Department", "Employees", "Days present", "Absent", "Late days", "Late minutes", "Hours worked", "Attendance %"],
-    ...report.departments.map((d) => [
+    ["Department", "Employees", "Score", "Rating", "Late days", "Absent days", "Permissions", `Deduction (${report.currency})`],
+    ...report.departmentScores.map((d) => [
       d.department,
       d.employees,
-      d.summary.presentDays,
-      d.summary.absentDays,
-      d.summary.lateDays,
-      d.summary.lateMinutes,
-      d.summary.workedHours,
-      d.summary.attendanceRate,
+      d.score === null ? "" : d.score,
+      d.band,
+      d.lateDays,
+      d.absentDays,
+      d.permissionsUsed,
+      d.deduction,
     ]),
   ];
   XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(deptRows), "By department");

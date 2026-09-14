@@ -126,6 +126,7 @@ export const api = {
   deleteHoliday: (id) => request("DELETE", `/settings/holidays/${id}`),
 
   overview: () => request("GET", "/dashboard/overview"),
+  departmentScores: () => request("GET", "/dashboard/departments"),
   reportSummary: (params) => request("GET", `/reports/summary${query(params)}`),
   dailyReport: (params) => request("GET", `/reports/daily${query(params)}`),
   exportUrl: (params) => `/api/reports/export${query(params)}`,

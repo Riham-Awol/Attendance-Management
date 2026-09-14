@@ -1,6 +1,8 @@
 import { api, getToken, setToken, setUnauthorizedHandler } from "./api.js";
 import { $, el, mount, field, toast, icon, scene, tiltOnPointer } from "./ui.js";
-import { homeView, myAttendanceView, myLeaveView, profileView, openPasswordForm } from "./views/employee.js";
+import {
+  homeView, myAttendanceView, myLeaveView, scoreboardView, profileView, openPasswordForm,
+} from "./views/employee.js";
 import {
   dashboardView, employeesView, approvalsView, recordsView, reportsView, settingsView,
 } from "./views/admin.js";
@@ -35,6 +37,7 @@ const EMPLOYEE_TABS = [
   { id: "home", label: "Check in", icon: "clockIn", view: homeView },
   { id: "attendance", label: "My days", icon: "calendar", view: myAttendanceView },
   { id: "leave", label: "Leave", icon: "leave", view: myLeaveView },
+  { id: "scores", label: "Scores", icon: "dashboard", view: scoreboardView },
   { id: "profile", label: "Me", icon: "user", view: profileView },
 ];
 
@@ -121,8 +124,7 @@ function renderAuth(message) {
   });
 
   const card = el("div", { class: "card tilt" }, [
-    el("img", { class: "logo", src: "/icons/icon-192.png", alt: "" }),
-    el("h1", { class: "center" }, "weTech"),
+    el("img", { class: "wordmark", src: "/icons/wetech-logo.svg", alt: "weTech" }),
     el("p", { class: "center muted", style: "margin-bottom:14px" }, "Attendance Management"),
     el("p", { class: "center muted small" }, message || "Sign in to check in and out."),
     form,
