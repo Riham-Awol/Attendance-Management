@@ -158,6 +158,13 @@ const optionalRangeQuery = Joi.object({
   to: dateKey,
 });
 
+const boardQuery = Joi.object({
+  period: Joi.string().valid("day", "week", "month", "year").default("month"),
+  anchor: dateKey,
+  department: Joi.string().trim().max(80),
+  includeInactive: Joi.boolean().default(false),
+});
+
 const exportQuery = rangeQuery.keys({
   format: Joi.string().valid("xlsx", "csv").default("xlsx"),
   sheet: Joi.string().valid("summary", "detail").default("summary"),
@@ -200,6 +207,7 @@ module.exports = {
   settingsUpdate,
   rangeQuery,
   optionalRangeQuery,
+  boardQuery,
   exportQuery,
   attendanceEdit,
   attendanceCreate,

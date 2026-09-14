@@ -4,7 +4,7 @@ import {
   homeView, myAttendanceView, myLeaveView, scoreboardView, profileView, openPasswordForm,
 } from "./views/employee.js";
 import {
-  dashboardView, employeesView, approvalsView, recordsView, reportsView, settingsView,
+  dashboardView, employeesView, approvalsView, recordsView, boardView, reportsView, settingsView,
 } from "./views/admin.js";
 
 const root = $("#app");
@@ -43,6 +43,7 @@ const EMPLOYEE_TABS = [
 
 const ADMIN_TABS = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard", view: dashboardView },
+  { id: "board", label: "Who's in", icon: "people", view: boardView },
   { id: "records", label: "Records", icon: "calendar", view: recordsView },
   { id: "approvals", label: "Requests", icon: "inbox", view: approvalsView, badge: true },
   { id: "employees", label: "People", icon: "people", view: employeesView },

@@ -7,6 +7,7 @@ const { validate } = require("../../helpers/validate");
 const schemas = require("../../helpers/schemas");
 const { requireAuth, requireAdmin } = require("../../helpers/auth");
 const service = require("./reports.service");
+const boardService = require("./board.service");
 const settingsService = require("../settings/settings.service");
 const { dateKey } = require("../../domain/time");
 
@@ -29,6 +30,17 @@ router.get(
       includeDays: !!userId,
     });
     res.json(report);
+  })
+);
+
+/**
+ * The attendance board: everyone against a day, week, month or year.
+ */
+router.get(
+  "/board",
+  validate(schemas.boardQuery, "query"),
+  asyncHandler(async (req, res) => {
+    res.json(await boardService.buildBoard(req.validatedQuery));
   })
 );
 

@@ -1,7 +1,7 @@
 import { api } from "../api.js";
 import {
   el, mount, field, toast, modal, confirmAction, empty, statusPill, formatDuration,
-  formatDate, formatDateLong, monthRange, todayKey, initials, LEAVE_LABELS, withBusy,
+  formatDate, formatDateLong, monthRange, todayKey, initials, LEAVE_LABELS, STATUS_LABELS, withBusy,
 } from "../ui.js";
 import { describeLeave } from "./employee.js";
 
@@ -779,6 +779,194 @@ async function openRecordForm(entry, date, onDone) {
     onDone();
   }
 }
+
+/* ── Attendance board ────────────────────────────────────────────────── */
+
+const PERIODS = [
+  ["day", "Day"],
+  ["week", "Week"],
+  ["month", "Month"],
+  ["year", "Year"],
+];
+
+/**
+ * Who came in and who did not, as a grid: people down the side, time across
+ * the top, each person in their own colour.
+ */
+export async function boardView(state) {
+  const container = el("div", { class: "stack" });
+  const body = el("div", {});
+
+  let period = "month";
+  let anchor = null; // null means "today", resolved by the server
+  let department = "";
+
+  const title = el("h2", {}, "Attendance board");
+  const rangeLabel = el("span", { class: "small muted" });
+  const prev = el("button", { class: "btn-sm", type: "button", "aria-label": "Previous period" }, "‹");
+  const next = el("button", { class: "btn-sm", type: "button", "aria-label": "Next period" }, "›");
+  const todayButton = el("button", { class: "btn-sm", type: "button" }, "Today");
+
+  const switcher = el("div", { class: "period-switch", role: "group", "aria-label": "Period" },
+    PERIODS.map(([value, label]) =>
+      el("button", {
+        type: "button",
+        dataset: { period: value },
+        "aria-pressed": value === period ? "true" : "false",
+        onclick: () => {
+          // The anchor date is kept, so changing the zoom level keeps you
+          // looking at the same point in time.
+          period = value;
+          for (const button of switcher.querySelectorAll("button")) {
+            button.setAttribute("aria-pressed", String(button.dataset.period === value));
+          }
+          load();
+        },
+      }, label)
+    )
+  );
+
+  const departmentSelect = el("select", { style: "max-width:170px" }, [el("option", { value: "" }, "All departments")]);
+  api.departments().then(({ departments }) => {
+    for (const name of departments) departmentSelect.append(el("option", { value: name }, name));
+  });
+  departmentSelect.addEventListener("change", () => {
+    department = departmentSelect.value;
+    load();
+  });
+
+  const load = async () => {
+    mount(body, el("div", { class: "skeleton" }));
+    try {
+      const board = await api.board({ period, anchor, department });
+      anchor = board.anchor;
+      rangeLabel.textContent = board.label;
+      prev.onclick = () => {
+        anchor = board.previous;
+        load();
+      };
+      next.onclick = () => {
+        anchor = board.next;
+        load();
+      };
+      todayButton.onclick = () => {
+        anchor = null;
+        load();
+      };
+      mount(body, renderBoard(board));
+    } catch (error) {
+      mount(body, empty(error.message));
+    }
+  };
+
+  container.append(
+    el("div", { class: "card" }, [
+      el("div", { class: "card-head" }, [
+        el("div", {}, [title, rangeLabel]),
+        el("div", { class: "row wrap" }, [prev, todayButton, next]),
+      ]),
+      el("div", { class: "row wrap", style: "margin-bottom:14px" }, [switcher, departmentSelect]),
+      body,
+    ])
+  );
+
+  await load();
+  return container;
+}
+
+function renderBoard(board) {
+  if (board.employees.length === 0) return empty("No employees to show.");
+
+  const isYear = board.period === "year";
+  const columnWidth = isYear ? 58 : board.columns.length > 20 ? 30 : 44;
+  const grid = el("div", {
+    class: "board",
+    style: `grid-template-columns: 156px repeat(${board.columns.length}, ${columnWidth}px);`,
+  });
+
+  // Header: the dates themselves.
+  grid.append(el("div", { class: "corner" }));
+  for (const column of board.columns) {
+    grid.append(
+      el("div", { class: `head${column.isToday ? " today" : ""}` }, [
+        el("b", {}, column.label),
+        column.sublabel ? el("span", {}, column.sublabel) : null,
+      ])
+    );
+  }
+
+  // One row per person, in their own colour.
+  for (const employee of board.employees) {
+    grid.append(
+      el("div", { class: "who", style: `--person:${employee.color}` }, [
+        el("span", { class: "dot" }),
+        el("div", { class: "grow", style: "min-width:0" }, [
+          el("div", { class: "name", title: employee.name }, employee.name),
+          el("div", { class: "dept" }, employee.department || "—"),
+        ]),
+      ])
+    );
+
+    employee.cells.forEach((cell, index) => {
+      grid.append(isYear ? yearCell(cell, employee) : dayCell(cell, board.columns[index]));
+    });
+  }
+
+  // Footer: how many were in on each day.
+  grid.append(el("div", { class: "corner small muted", style: "font-size:.7rem" }, isYear ? "Average" : "In"));
+  for (const total of board.totals) {
+    grid.append(
+      el("div", { class: "total" },
+        isYear
+          ? total.rate === null ? "—" : `${Math.round(total.rate)}%`
+          : total.expected === 0
+          ? "—"
+          : el("span", {}, [el("b", {}, String(total.in)), `/${total.expected}`])
+      )
+    );
+  }
+
+  return el("div", {}, [
+    el("div", { class: "board-scroll" }, grid),
+    isYear ? yearLegend() : dayLegend(),
+  ]);
+}
+
+const dayCell = (cell, column) =>
+  el("div", {
+    class: `cell ${cell.status}${column && column.isToday ? " today-col" : ""}`,
+    title: `${cell.key} — ${STATUS_LABELS[cell.status] || cell.status}${
+      cell.checkInTime ? ` · in ${cell.checkInTime}${cell.checkOutTime ? `, out ${cell.checkOutTime}` : ""}` : ""
+    }${cell.lateMinutes ? ` · ${formatDuration(cell.lateMinutes)} late` : ""}`,
+  }, cell.status === "absent" ? "✕" : cell.checkInTime ? "●" : "");
+
+function yearCell(cell, employee) {
+  if (cell.rate === null) {
+    return el("div", { class: "cell rate none", title: `${cell.key} — nothing expected` }, "—");
+  }
+  return el("div", {
+    class: `cell rate${cell.rate >= 70 ? " strong" : ""}`,
+    style: `--person:${employee.color};--fill:${Math.max(8, Math.round(cell.rate))}`,
+    title: `${cell.key} — ${cell.presentDays} of ${cell.expectedDays} days present, ${cell.lateDays} late, ${cell.absentDays} absent`,
+  }, `${Math.round(cell.rate)}%`);
+}
+
+const swatch = (color, label) =>
+  el("span", {}, [el("i", { style: `background:${color}` }), label]);
+
+const dayLegend = () =>
+  el("div", { class: "board-legend" }, [
+    swatch("var(--ok-soft)", "Present"),
+    swatch("var(--warn-soft)", "Late or partial"),
+    swatch("var(--bad-soft)", "Absent"),
+    swatch("var(--info-soft)", "Leave or holiday"),
+    swatch("transparent", "Not a working day"),
+  ]);
+
+const yearLegend = () =>
+  el("div", { class: "board-legend" }, [
+    el("span", {}, "Each cell is one month, shaded in that person's colour by how much of it they attended."),
+  ]);
 
 /* ── Reports ─────────────────────────────────────────────────────────── */
 

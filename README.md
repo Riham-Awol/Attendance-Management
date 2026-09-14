@@ -64,6 +64,11 @@ API, the tests and the deployment.
 **For admins**
 - A live dashboard: who is on site right now, who has not arrived, a 14-day
   attendance chart, and this month's worst lateness and absence.
+- **Who's in** — an attendance board of everyone against time, one row per
+  person in their own colour, viewable by day, week, month or year. Day, week
+  and month show a cell per day coloured by what happened; a year shows twelve
+  monthly cells shaded in that person's colour by how much of the month they
+  attended. A strip along the bottom counts how many were in each day.
 - Approve or reject leave and permission requests. Approving a permission
   retroactively clears lateness that was already recorded for that day.
 - Correct a punch when someone's phone died — every correction is stamped with

@@ -129,6 +129,7 @@ export const api = {
   departmentScores: () => request("GET", "/dashboard/departments"),
   reportSummary: (params) => request("GET", `/reports/summary${query(params)}`),
   dailyReport: (params) => request("GET", `/reports/daily${query(params)}`),
+  board: (params) => request("GET", `/reports/board${query(params)}`),
   exportUrl: (params) => `/api/reports/export${query(params)}`,
   download: (params) => request("GET", `/reports/export${query(params)}`, undefined, { raw: true }),
 };

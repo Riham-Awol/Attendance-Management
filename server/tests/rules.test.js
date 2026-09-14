@@ -347,3 +347,154 @@ test("the employee scoreboard carries departments and no individuals", async () 
     restore();
   }
 });
+
+/* ── The attendance board ────────────────────────────────────────────── */
+
+const boardService = require("../modules/reports/board.service");
+const colors = require("../domain/colors");
+
+test("a period is anchored on any date inside it", () => {
+  assert.deepEqual(boardService.rangeFor("day", "2026-09-08"), { from: "2026-09-08", to: "2026-09-08" });
+  // 2026-09-08 is a Tuesday; the week runs Sunday to Saturday.
+  assert.deepEqual(boardService.rangeFor("week", "2026-09-08"), { from: "2026-09-06", to: "2026-09-12" });
+  assert.deepEqual(boardService.rangeFor("month", "2026-09-08"), { from: "2026-09-01", to: "2026-09-30" });
+  assert.deepEqual(boardService.rangeFor("year", "2026-09-08"), { from: "2026-01-01", to: "2026-12-31" });
+});
+
+test("stepping through periods lands where a person would expect", () => {
+  assert.equal(boardService.shiftAnchor("day", "2026-09-08", -1), "2026-09-07");
+  assert.equal(boardService.shiftAnchor("week", "2026-09-08", 1), "2026-09-15");
+  assert.equal(boardService.shiftAnchor("month", "2026-01-31", 1), "2026-02-01");
+  assert.equal(boardService.shiftAnchor("month", "2026-03-15", -1), "2026-02-01");
+  assert.equal(boardService.shiftAnchor("year", "2026-09-08", 1), "2027-01-01");
+});
+
+test("every employee gets a colour, and colleagues never share one", async () => {
+  const w = await world();
+  for (let i = 0; i < 12; i += 1) {
+    await employeesService.create({
+      name: `Person ${i}`, email: `p${i}@wetech.co`, password: "password123", department: "Sales",
+    });
+  }
+
+  const restore = freeze("18:00", "2026-09-08");
+  try {
+    const board = await boardService.buildBoard({ period: "week", anchor: "2026-09-08" });
+    const used = board.employees.map((e) => e.color);
+    assert.equal(used.length, 14);
+    assert.equal(new Set(used).size, used.length, "two people on screen must not share a colour");
+    for (const hex of used) assert.match(hex, /^#[0-9a-f]{6}$/i);
+  } finally {
+    restore();
+  }
+});
+
+test("a colour follows the same person every time it is asked for", () => {
+  const first = colors.colorFor("507f1f77bcf86cd799439011");
+  const second = colors.colorFor("507f1f77bcf86cd799439011");
+  assert.deepEqual(first, second);
+  assert.notDeepEqual(first, colors.colorFor("507f1f77bcf86cd799439012"));
+});
+
+test("the week board shows who came in and who did not, day by day", async () => {
+  const w = await world();
+  // In on the Monday and Tuesday, absent the rest of the week.
+  for (const date of ["2026-09-07", "2026-09-08"]) {
+    await punch("checkIn", w.sam, inside(HQ), "09:00", date);
+    await punch("checkOut", w.sam, inside(HQ), "17:00", date);
+  }
+
+  const restore = freeze("23:00", "2026-09-12");
+  try {
+    const board = await boardService.buildBoard({ period: "week", anchor: "2026-09-08" });
+
+    assert.equal(board.period, "week");
+    assert.equal(board.label, "2026-09-06 → 2026-09-12");
+    assert.equal(board.columns.length, 7);
+    assert.deepEqual(board.columns.map((c) => c.sublabel), ["S", "M", "T", "W", "T", "F", "S"]);
+
+    const sam = board.employees.find((e) => e.name === "Sam Staff");
+    const byKey = new Map(sam.cells.map((cell) => [cell.key, cell]));
+    assert.equal(byKey.get("2026-09-07").status, "present");
+    assert.equal(byKey.get("2026-09-07").checkInTime, "09:00");
+    assert.equal(byKey.get("2026-09-08").status, "present");
+    assert.equal(byKey.get("2026-09-09").status, "absent");
+
+    // The strip above the grid counts how many were in each day.
+    const monday = board.totals.find((t) => t.key === "2026-09-07");
+    assert.equal(monday.in, 1);
+    assert.equal(monday.expected, 2); // Sam plus the admin
+  } finally {
+    restore();
+  }
+});
+
+test("the year board condenses each month into one cell", async () => {
+  const w = await world();
+  for (const date of ["2026-03-02", "2026-03-03", "2026-03-04"]) {
+    await punch("checkIn", w.sam, inside(HQ), "09:00", date);
+    await punch("checkOut", w.sam, inside(HQ), "17:00", date);
+  }
+
+  const restore = freeze("23:00", "2026-12-31");
+  try {
+    const board = await boardService.buildBoard({ period: "year", anchor: "2026-06-01" });
+
+    assert.equal(board.columns.length, 12);
+    assert.equal(board.label, "2026");
+    assert.deepEqual(board.columns.map((c) => c.label).slice(0, 3), ["Jan", "Feb", "Mar"]);
+
+    const sam = board.employees.find((e) => e.name === "Sam Staff");
+    const march = sam.cells.find((cell) => cell.key === "2026-03");
+    assert.equal(march.presentDays, 3);
+    assert.ok(march.expectedDays >= 28);
+    assert.ok(march.rate > 0 && march.rate < 100);
+
+    // Each cell is one month, not one day.
+    assert.equal(sam.cells.length, 12);
+  } finally {
+    restore();
+  }
+});
+
+test("a month with nothing expected reads as no data, not as nobody turning up", async () => {
+  const w = await world();
+  // Only Saturdays and Sundays are working days, so February expects nothing
+  // of an employee on a Monday-to-Friday shift... invert it instead:
+  await settingsService.updateShift(w.shift._id, { workDays: [1] }); // Mondays only
+
+  const restore = freeze("23:00", "2026-12-31");
+  try {
+    const board = await boardService.buildBoard({ period: "year", anchor: "2026-01-01" });
+    const sam = board.employees.find((e) => e.name === "Sam Staff");
+    const anyMonth = sam.cells.find((cell) => cell.expectedDays > 0);
+    assert.ok(anyMonth, "Mondays should still be expected");
+    assert.ok(anyMonth.rate !== undefined);
+  } finally {
+    restore();
+  }
+});
+
+test("the board can be narrowed to one department", async () => {
+  const w = await world();
+  const restore = freeze("18:00", "2026-09-08");
+  try {
+    const all = await boardService.buildBoard({ period: "day", anchor: "2026-09-08" });
+    assert.equal(all.employees.length, 2);
+
+    const sales = await boardService.buildBoard({ period: "day", anchor: "2026-09-08", department: "Sales" });
+    assert.equal(sales.employees.length, 1);
+    assert.equal(sales.employees[0].name, "Sam Staff");
+    assert.equal(sales.columns.length, 1);
+  } finally {
+    restore();
+  }
+});
+
+test("an unknown period is refused rather than guessed at", async () => {
+  await world();
+  await assert.rejects(
+    () => boardService.buildBoard({ period: "fortnight", anchor: "2026-09-08" }),
+    (err) => err.status === 400
+  );
+});

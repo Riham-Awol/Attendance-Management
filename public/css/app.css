@@ -106,9 +106,16 @@ main { flex: 1; width: 100%; max-width: 1120px; margin: 0 auto; padding: 16px; p
   border-top: 1px solid var(--border);
   padding-bottom: env(safe-area-inset-bottom);
 }
+/* With nine admin tabs the bar no longer fits a phone, and because it is
+   fixed its overflow does not grow the page — the last tab simply becomes
+   unreachable. Scrolling the bar itself keeps every tab available. */
+.tabbar { overflow-x: auto; scrollbar-width: none; }
+.tabbar::-webkit-scrollbar { display: none; }
+
 .tabbar button {
   position: relative;
-  flex: 1;
+  flex: 0 0 auto;
+  min-width: 68px;
   border: 0;
   background: none;
   color: var(--muted);
@@ -149,7 +156,8 @@ main { flex: 1; width: 100%; max-width: 1120px; margin: 0 auto; padding: 16px; p
     gap: 4px;
     padding: 6px 12px;
   }
-  .tabbar button { flex: 0 0 auto; flex-direction: row; font-size: 0.88rem; padding: 8px 14px; border-radius: 10px; min-height: 0; }
+  .tabbar { overflow-x: visible; }
+  .tabbar button { flex: 0 0 auto; min-width: 0; flex-direction: row; font-size: 0.88rem; padding: 8px 14px; border-radius: 10px; min-height: 0; }
   /* On a wide tab the label sits beside the icon, so the count belongs after
      the text rather than floating over it. */
   .tabbar .badge-dot { position: static; transform: none; margin-left: 2px; }
@@ -674,7 +682,7 @@ main > * { animation: view-in 0.35s ease both; }
   .punch-pulse { width: 220px; height: 220px; margin: -110px 0 0 -110px; }
 
   /* Tabs get their labels beside the icons and stop being cramped. */
-  .tabbar button { flex-direction: row; gap: 8px; font-size: 0.82rem; padding: 11px 6px; }
+  .tabbar button { flex-direction: row; gap: 8px; font-size: 0.82rem; padding: 11px 10px; min-width: 0; }
   .tabbar button svg { width: 19px; height: 19px; }
 
   .table-wrap { margin: 0; padding: 0; }
@@ -746,3 +754,138 @@ main > * { animation: view-in 0.35s ease both; }
 
 .money { font-variant-numeric: tabular-nums; }
 .money.owed { color: var(--bad); font-weight: 600; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Attendance board
+   People down the side, time across the top. The first column is pinned so
+   a name stays visible while the grid scrolls, which is the whole point of
+   the layout on a month or a year.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.board-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+.board {
+  display: grid;
+  gap: 3px;
+  min-width: max-content;
+  align-items: center;
+}
+
+.board .corner,
+.board .who {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--surface);
+  padding-right: 10px;
+  min-width: 156px;
+  max-width: 156px;
+}
+.board .corner { z-index: 3; }
+
+.board .who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-left: 4px solid var(--person, var(--border));
+  padding-left: 8px;
+  height: 100%;
+}
+.board .who .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--person);
+  flex: none;
+}
+.board .who .name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.board .who .dept { font-size: 0.7rem; color: var(--muted); }
+
+.board .head {
+  text-align: center;
+  font-size: 0.68rem;
+  color: var(--muted);
+  line-height: 1.15;
+  padding-bottom: 2px;
+}
+.board .head.today { color: var(--brand); font-weight: 700; }
+.board .head b { display: block; font-size: 0.78rem; color: var(--text); font-weight: 600; }
+.board .head.today b { color: var(--brand); }
+
+.board .cell {
+  height: 30px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  display: grid;
+  place-items: center;
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: transparent;
+  cursor: default;
+  border: 1px solid transparent;
+}
+.board .cell.present { background: var(--ok-soft); color: var(--ok); }
+.board .cell.late { background: var(--warn-soft); color: var(--warn); }
+.board .cell.half_day,
+.board .cell.short_day,
+.board .cell.missing_checkout { background: var(--warn-soft); color: var(--warn); opacity: 0.75; }
+.board .cell.absent { background: var(--bad-soft); color: var(--bad); }
+.board .cell.on_leave { background: var(--info-soft); color: var(--info); }
+.board .cell.holiday { background: var(--info-soft); color: var(--info); opacity: 0.6; }
+.board .cell.weekend,
+.board .cell.upcoming { background: transparent; border-color: var(--border); }
+.board .cell.today-col { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+/* Year view: the person's own colour, deepening with attendance. */
+.board .cell.rate {
+  background: color-mix(in srgb, var(--person) calc(var(--fill) * 1%), var(--surface-2));
+  color: var(--text);
+  font-size: 0.66rem;
+}
+.board .cell.rate.strong { color: #fff; }
+.board .cell.rate.none { background: var(--surface-2); color: var(--muted); }
+
+.board .total {
+  text-align: center;
+  font-size: 0.66rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.board .total b { color: var(--text); }
+
+.board-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.76rem; color: var(--muted); margin-top: 12px; }
+.board-legend i {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  display: inline-block;
+  vertical-align: -2px;
+  margin-right: 5px;
+  /* An outline so the "not a working day" swatch, which has no fill, is still
+     something you can see. */
+  border: 1px solid var(--border);
+}
+
+.period-switch { display: inline-flex; background: var(--surface-2); border-radius: 10px; padding: 3px; gap: 2px; }
+.period-switch button {
+  border: 0;
+  background: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 0.84rem;
+  color: var(--muted);
+  min-height: 34px;
+}
+.period-switch button[aria-pressed="true"] { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--shadow); }
+
+@media (max-width: 639px) {
+  .board .corner, .board .who { min-width: 118px; max-width: 118px; }
+  .board .who .name { font-size: 0.76rem; }
+  .board .cell { height: 26px; }
+}

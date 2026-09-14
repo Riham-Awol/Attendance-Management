@@ -428,8 +428,18 @@ test("the navigation stays reachable and tappable on a phone", async () => {
     // Pinned to the bottom of the screen, not scrolled off with the content.
     assert.ok(box.y + box.height <= viewport.height + 1, "the tab bar should sit within the viewport");
 
+    // Every tab must be reachable. The bar is fixed, so an overflowing one
+    // does not grow the page scroll and the last tab just disappears — which
+    // is exactly what happened when a ninth admin tab was added.
+    const tabs = bar.locator("button");
+    const count = await tabs.count();
+    const last = tabs.nth(count - 1);
+    await last.scrollIntoViewIfNeeded();
+    await last.click();
+    assert.equal(await last.getAttribute("aria-current"), "page", "the last tab should be reachable");
+
     // Touch targets large enough to hit: the usual guidance is 44px.
-    const heights = await bar.locator("button").evaluateAll((nodes) =>
+    const heights = await tabs.evaluateAll((nodes) =>
       nodes.map((node) => node.getBoundingClientRect().height)
     );
     for (const height of heights) {
@@ -471,5 +481,63 @@ test("the 3D backdrop is decorative: inert, hidden from assistive tech, and drop
     assert.equal(await reducedPage.locator(".shape").count(), 0, "no shapes should be built at all");
   } finally {
     await reduced.close();
+  }
+});
+
+
+test("the attendance board shows who came in, across day, week, month and year", async () => {
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 900 },
+    permissions: ["geolocation"],
+    geolocation: { latitude: OFFICE.lat, longitude: OFFICE.lng, accuracy: 12 },
+    locale: "en-GB",
+  });
+  const page = await context.newPage();
+  try {
+    await signIn(page, "admin@browser.co");
+    await page.getByRole("button", { name: "Who's in" }).click();
+    await page.getByRole("heading", { name: "Attendance board" }).waitFor({ timeout: 20000 });
+
+    // A month by default: one column per day, one row per person.
+    const cells = page.locator(".board .cell");
+    await cells.first().waitFor({ timeout: 15000 });
+    const rows = await page.locator(".board .who").count();
+    assert.ok(rows >= 3, `expected a row per employee, saw ${rows}`);
+
+    // Everybody has their own colour, and no two share one.
+    const colours = await page.locator(".board .who").evaluateAll((nodes) =>
+      nodes.map((node) => node.style.getPropertyValue("--person").trim())
+    );
+    assert.equal(colours.filter(Boolean).length, rows, "every row should carry a colour");
+    assert.equal(new Set(colours).size, colours.length, "colours must not repeat on screen");
+
+    // Sam checked in earlier in this suite, so at least one cell is present.
+    assert.ok((await page.locator(".board .cell.present").count()) >= 1);
+
+    for (const [period, expectedColumns] of [["Day", 1], ["Week", 7], ["Year", 12]]) {
+      await page.getByRole("button", { name: period, exact: true }).click();
+      await page.waitForTimeout(700);
+      const columns = await page.locator(".board .head").count();
+      assert.equal(columns, expectedColumns, `${period} should show ${expectedColumns} columns`);
+      assert.equal(
+        await page.locator(`.period-switch button[aria-pressed="true"]`).textContent(),
+        period
+      );
+    }
+
+    // The year view is monthly percentages in each person's own colour.
+    assert.ok((await page.locator(".board .cell.rate").count()) >= 12);
+
+    // Stepping back a year and returning to today both work.
+    const yearLabel = page.locator(".card-head .small.muted").first();
+    const shown = (await yearLabel.textContent()).trim();
+    await page.getByRole("button", { name: "Previous period" }).click();
+    await page.waitForTimeout(700);
+    assert.notEqual((await yearLabel.textContent()).trim(), shown);
+    await page.getByRole("button", { name: "Today" }).click();
+    await page.waitForTimeout(700);
+    assert.equal((await yearLabel.textContent()).trim(), shown);
+  } finally {
+    await context.close();
   }
 });
