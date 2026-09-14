@@ -116,6 +116,8 @@ async function overview() {
         }))
         .sort((a, b) => (a.score ?? 101) - (b.score ?? 101)),
       departments: monthReport.departmentScores,
+      best: monthReport.best,
+      staffCounts: monthReport.staffCounts,
       deductionTotal: monthReport.deductionTotal,
       currency: monthReport.currency,
       policy: monthReport.policy,

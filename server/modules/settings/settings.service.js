@@ -100,14 +100,17 @@ async function deleteOffice(id) {
 const listShifts = () => collection(COLLECTIONS.shifts).find().sort({ name: 1 }).toArray();
 
 async function createShift(data) {
-  const doc = { ...DEFAULT_SHIFT, ...data, createdAt: new Date() };
-  if (doc.isDefault) await clearDefaultShift();
+  const doc = { ...DEFAULT_SHIFT, staffType: "any", ...data, createdAt: new Date() };
+  if (doc.isDefault) await clearDefaultShift(doc.staffType);
   const { insertedId } = await collection(COLLECTIONS.shifts).insertOne(doc);
   return { ...doc, _id: insertedId };
 }
 
 async function updateShift(id, patch) {
-  if (patch.isDefault) await clearDefaultShift();
+  if (patch.isDefault) {
+    const existing = await collection(COLLECTIONS.shifts).findOne({ _id: toId(id) });
+    await clearDefaultShift(patch.staffType || (existing && existing.staffType) || "any");
+  }
   const result = await collection(COLLECTIONS.shifts).findOneAndUpdate(
     { _id: toId(id) },
     { $set: { ...patch, updatedAt: new Date() } },
@@ -128,12 +131,33 @@ async function deleteShift(id) {
   if (!deletedCount) throw ApiError.notFound("Shift not found");
 }
 
-const clearDefaultShift = () =>
-  collection(COLLECTIONS.shifts).updateMany({ isDefault: true }, { $set: { isDefault: false } });
+/** One default per staff type: marking an intern shift default leaves the
+ *  employee default alone. */
+const clearDefaultShift = (staffType = "any") =>
+  collection(COLLECTIONS.shifts).updateMany(
+    { isDefault: true, staffType: staffType === "any" ? { $in: ["any", null] } : staffType },
+    { $set: { isDefault: false } }
+  );
 
-async function getDefaultShift() {
-  const found = await collection(COLLECTIONS.shifts).findOne({ isDefault: true });
-  return found || (await collection(COLLECTIONS.shifts).findOne()) || { ...DEFAULT_SHIFT };
+/**
+ * The shift someone lands on when none is chosen for them.
+ *
+ * A shift marked for a staff type is the default for that type, which is what
+ * puts a new intern on shorter hours without anyone remembering to set it.
+ * Falling back through "any" and then the general default means an office
+ * that never creates a typed shift behaves exactly as before.
+ */
+async function getDefaultShift(staffType) {
+  const shifts = collection(COLLECTIONS.shifts);
+
+  if (staffType) {
+    const typed =
+      (await shifts.findOne({ staffType, isDefault: true })) || (await shifts.findOne({ staffType }));
+    if (typed) return typed;
+  }
+
+  const generalDefault = await shifts.findOne({ isDefault: true });
+  return generalDefault || (await shifts.findOne()) || { ...DEFAULT_SHIFT };
 }
 
 /**
@@ -145,7 +169,7 @@ async function getShiftForUser(user) {
   if (user && user.shiftId) {
     shift = await collection(COLLECTIONS.shifts).findOne({ _id: toId(user.shiftId) });
   }
-  if (!shift) shift = await getDefaultShift();
+  if (!shift) shift = await getDefaultShift(user && user.staffType);
   return applyWorkingHours(shift, user);
 }
 
@@ -176,11 +200,16 @@ async function getShiftMap(users) {
     ? await collection(COLLECTIONS.shifts).find({ _id: { $in: ids.map(toId) } }).toArray()
     : [];
   const byId = new Map(shifts.map((s) => [String(s._id), s]));
-  const fallback = await getDefaultShift();
+
+  // One lookup per staff type present, rather than one per user.
+  const fallbacks = new Map();
+  for (const staffType of new Set(users.map((user) => user.staffType || "employee"))) {
+    fallbacks.set(staffType, await getDefaultShift(staffType));
+  }
 
   const map = new Map();
   for (const user of users) {
-    const base = byId.get(String(user.shiftId)) || fallback;
+    const base = byId.get(String(user.shiftId)) || fallbacks.get(user.staffType || "employee");
     map.set(String(user._id), applyWorkingHours(base, user));
   }
   return map;

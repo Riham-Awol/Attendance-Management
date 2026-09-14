@@ -23,26 +23,26 @@ function assertRange(from, to) {
 }
 
 /** Employees in scope for a report, honouring the admin's filters. */
-async function scopedEmployees({ userId, department, includeInactive }) {
+async function scopedEmployees({ userId, department, staffType, includeInactive }) {
   if (userId) {
     const user = await employeesService.getById(userId);
     return [user];
   }
-  const users = await employeesService.list({
+  return employeesService.list({
     department,
+    staffType,
     status: includeInactive ? undefined : "active",
   });
-  return users;
 }
 
 /**
  * The core report: one row per employee with their evaluated days and totals,
  * plus organisation-wide and per-department roll-ups.
  */
-async function buildReport({ from, to, userId, department, includeInactive = false, includeDays = true }) {
+async function buildReport({ from, to, userId, department, staffType, includeInactive = false, includeDays = true }) {
   assertRange(from, to);
 
-  const users = await scopedEmployees({ userId, department, includeInactive });
+  const users = await scopedEmployees({ userId, department, staffType, includeInactive });
   const built = await attendanceService.buildDays({ users, from, to });
 
   const { policy } = await settingsService.getSettings();
@@ -58,6 +58,7 @@ async function buildReport({ from, to, userId, department, includeInactive = fal
       employeeCode: employee.employeeCode || null,
       department: employee.department || null,
       position: employee.position || null,
+      staffType: employee.staffType || "employee",
       status: employee.status,
     },
     shift: { name: shift.name || "Default", startTime: shift.startTime, endTime: shift.endTime },
@@ -80,6 +81,8 @@ async function buildReport({ from, to, userId, department, includeInactive = fal
     mostAbsent: rankBy(rows, "absentDays").map(slim),
     policy,
     departmentScores: scoreDepartments(rows, policy),
+    best: bestPerformers(rows, policy),
+    staffCounts: countByStaffType(rows),
     deductionTotal: rows.reduce((sum, row) => sum + row.summary.deduction.amount, 0),
     currency: policy.currency,
   };
@@ -124,6 +127,53 @@ async function permissionsPerEmployee(users, from, to) {
   }
   return counts;
 }
+
+/**
+ * The best employee, the best intern and the leading department.
+ *
+ * Employees and interns are ranked separately because comparing them directly
+ * would be comparing different jobs — though the scores themselves are rates,
+ * so an intern's shorter day neither helps nor hurts them.
+ */
+function bestPerformers(rows, policy) {
+  const candidates = (staffType) =>
+    rows
+      .filter((row) => (row.employee.staffType || "employee") === staffType)
+      .map((row) => ({
+        _id: row.employee._id,
+        name: row.employee.name,
+        department: row.employee.department,
+        staffType: row.employee.staffType || "employee",
+        summary: row.summary,
+      }));
+
+  const departments = scoreDepartments(rows, policy)
+    .filter((department) => department.score !== null)
+    .sort((a, b) => b.score - a.score || b.employees - a.employees);
+
+  const leading = departments[0] || null;
+  const runnersUp = leading
+    ? departments.filter((d) => d !== leading && d.score === leading.score).map((d) => d.department)
+    : [];
+
+  return {
+    employee: policyRules.bestOf(candidates("employee"), policy),
+    intern: policyRules.bestOf(candidates("intern"), policy),
+    department: leading
+      ? { ...leading, tied: runnersUp.length > 0, tiedWith: runnersUp }
+      : null,
+  };
+}
+
+const countByStaffType = (rows) =>
+  rows.reduce(
+    (counts, row) => {
+      const type = row.employee.staffType || "employee";
+      counts[type] = (counts[type] || 0) + 1;
+      return counts;
+    },
+    { employee: 0, intern: 0 }
+  );
 
 /** One score per department, ordered best first. */
 function scoreDepartments(rows, policy) {
@@ -182,6 +232,7 @@ const SUMMARY_COLUMNS = [
   ["Employee", (r) => r.employee.name],
   ["Employee ID", (r) => r.employee.employeeCode || ""],
   ["Department", (r) => r.employee.department || ""],
+  ["Type", (r) => (r.employee.staffType === "intern" ? "Intern" : "Employee")],
   ["Shift", (r) => r.shift.name],
   ["Days expected", (r) => r.summary.expectedDays],
   ["Days present", (r) => r.summary.presentDays],
@@ -210,6 +261,7 @@ const DETAIL_COLUMNS = [
   ["Employee", (r, d) => r.employee.name],
   ["Employee ID", (r) => r.employee.employeeCode || ""],
   ["Department", (r) => r.employee.department || ""],
+  ["Type", (r) => (r.employee.staffType === "intern" ? "Intern" : "Employee")],
   ["Date", (r, d) => d.date],
   ["Status", (r, d) => d.status],
   ["Check in", (r, d) => d.checkInTime || ""],

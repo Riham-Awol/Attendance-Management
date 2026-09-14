@@ -15,8 +15,8 @@ router.use(requireAuth, requireAdmin);
 router.get(
   "/",
   asyncHandler(async (req, res) => {
-    const { search, department, status, role } = req.query;
-    res.json({ employees: await service.list({ search, department, status, role }) });
+    const { search, department, status, role, staffType } = req.query;
+    res.json({ employees: await service.list({ search, department, status, role, staffType }) });
   })
 );
 

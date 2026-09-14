@@ -445,7 +445,7 @@ test("the Excel export contains a row per employee and per working day", async (
 
   const csv = reportsService.toCsv(report, "detail");
   const lines = csv.split("\r\n");
-  assert.match(lines[0], /^Employee,Employee ID,Department,Date,Status/);
+  assert.match(lines[0], /^Employee,Employee ID,Department,Type,Date,Status/);
   assert.equal(lines.length, 1 + 2 * 5, "2 employees x 5 working days");
   assert.ok(csv.includes("09:30"), "the check-in time should appear in the detail export");
 });

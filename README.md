@@ -34,6 +34,17 @@ API, the tests and the deployment.
 - Your month at a glance: a colour-coded calendar, hours worked, lateness.
 - Request leave (whole days) or permission (a few hours), and see the decision.
 
+**Employees and interns**
+- Everyone is an *employee* or an *intern*. The distinction is what they are to
+  the company, not what they can do in the app — an intern can be an admin.
+- A shift can be marked for a staff type, and becomes the default for new
+  people of that type. A fresh install creates *Standard (9–5)* and
+  *Intern (9–1)*, so a new intern lands on shorter hours without anyone
+  remembering to set it.
+- Interns are judged against their own shorter day. Scores are rates, so a
+  four-hour shift is neither an easier standard nor a harsher one — just a
+  different one. People, reports and the attendance board all filter by type.
+
 **Rules and scoring**
 - Each employee is assigned an office (check-in is only accepted there), a
   shift, and optionally their own hours layered over that shift.
@@ -57,6 +68,15 @@ API, the tests and the deployment.
   one person's long absence is not diluted by a large team. Employees with
   nothing expected of them in the period (new joiners, whole month on leave)
   are left out rather than scored zero.
+
+- The reports and the dashboard name the **best employee**, the **best intern**
+  and the **leading department**. Employees and interns are ranked separately
+  because comparing them directly compares different jobs. Only people expected
+  in on at least 5 days in the period are eligible, so a single good week cannot
+  outrank a good month; ties go to whoever was expected in more often, then to
+  whoever lost less time to lateness, and a genuine dead heat is reported as
+  shared rather than decided arbitrarily. When nobody qualifies it says so
+  instead of crowning someone the numbers do not support.
 
 - Employees see **department scores only**. They can see their own attendance
   and how each department is doing; they can never see a colleague's record.

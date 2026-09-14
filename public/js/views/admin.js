@@ -58,6 +58,7 @@ export async function dashboardView(state) {
       rankCard("Most absences this month", data.month.mostAbsent, (row) => `${row.summary.absentDays} day${row.summary.absentDays === 1 ? "" : "s"}`),
     ]),
 
+    data.month.best ? bestCard(data.month.best) : null,
     departmentCard(data.month),
     peopleCard(data.month),
     pendingCard(data.pendingLeaves, state)
@@ -73,6 +74,56 @@ const money = (amount, currency) =>
 const scorePill = (score, band) =>
   el("span", { class: `pill ${(band || "no data").replace(/ /g, "-")}` },
     score === null || score === undefined ? "no data" : band);
+
+/**
+ * The best employee, the best intern and the leading department.
+ *
+ * Says out loud when nobody qualifies and when a place is shared, rather than
+ * putting up a name the numbers do not actually support.
+ */
+function bestCard(best, { title = "Top of the month", note } = {}) {
+  const card = el("div", { class: "card" }, [
+    el("div", { class: "card-head" }, [el("h2", {}, title), note ? el("span", { class: "small muted" }, note) : null]),
+  ]);
+
+  const winner = (label, row, describe) => {
+    if (!row) {
+      return el("div", { class: "stat" }, [
+        el("div", { class: "label" }, label),
+        el("div", { class: "small muted", style: "margin-top:4px" }, "Not enough attendance to judge yet"),
+      ]);
+    }
+    return el("div", { class: "stat accent" }, [
+      el("div", { class: "label" }, label),
+      el("div", { style: "font-size:1.05rem;font-weight:700;margin:2px 0" }, row.name || row.department),
+      el("div", { class: "small muted" }, describe(row)),
+      row.tied
+        ? el("div", { class: "small muted", style: "margin-top:4px" },
+            `Shared with ${row.tiedWith.join(", ")}`)
+        : null,
+    ]);
+  };
+
+  card.append(
+    el("div", { class: "grid stats" }, [
+      winner("Best employee", best.employee, (row) =>
+        `${row.summary.score} · ${row.department || "—"} · ${row.summary.presentDays} of ${row.summary.expectedDays} days`),
+      winner("Best intern", best.intern, (row) =>
+        `${row.summary.score} · ${row.department || "—"} · ${row.summary.presentDays} of ${row.summary.expectedDays} days`),
+      winner("Leading department", best.department, (row) =>
+        `${row.score} · ${row.employees} ${row.employees === 1 ? "person" : "people"}`),
+    ])
+  );
+
+  const threshold = (best.employee || best.intern || {}).minimumDays;
+  if (threshold) {
+    card.append(
+      el("p", { class: "small muted", style: "margin-top:12px" },
+        `Only people expected in on at least ${threshold} days in the period are ranked, so a single good week cannot outrank a good month. Employees and interns are ranked separately.`)
+    );
+  }
+  return card;
+}
 
 /** How each department compares this month. */
 function departmentCard(month) {
@@ -360,11 +411,21 @@ function trendChart(trend) {
 export async function employeesView(state) {
   const container = el("div", { class: "stack" });
   const list = el("div", {});
-  const search = el("input", { type: "search", placeholder: "Search name, email or ID", style: "max-width:260px" });
-  const statusFilter = el("select", { style: "max-width:150px" }, [
+  const search = el("input", {
+    type: "search",
+    placeholder: "Search name, email or ID",
+    "aria-label": "Search people",
+    style: "max-width:260px",
+  });
+  const statusFilter = el("select", { "aria-label": "Filter by status", style: "max-width:150px" }, [
     el("option", { value: "active" }, "Active"),
     el("option", { value: "" }, "All"),
     el("option", { value: "inactive" }, "Inactive"),
+  ]);
+  const typeFilter = el("select", { "aria-label": "Filter by staff type", style: "max-width:160px" }, [
+    el("option", { value: "" }, "Everyone"),
+    el("option", { value: "employee" }, "Employees"),
+    el("option", { value: "intern" }, "Interns"),
   ]);
 
   const [shifts, offices] = await Promise.all([
@@ -374,7 +435,11 @@ export async function employeesView(state) {
 
   const load = async () => {
     mount(list, el("div", { class: "skeleton" }));
-    const { employees } = await api.employees({ search: search.value, status: statusFilter.value });
+    const { employees } = await api.employees({
+      search: search.value,
+      status: statusFilter.value,
+      staffType: typeFilter.value,
+    });
     if (employees.length === 0) {
       mount(list, empty("No employees match that.", "Try clearing the search."));
       return;
@@ -388,6 +453,7 @@ export async function employeesView(state) {
             el("strong", {}, employee.name),
             el("div", { class: "small muted" }, [employee.employeeCode, employee.department, employee.position].filter(Boolean).join(" · ") || employee.email),
           ]),
+          employee.staffType === "intern" ? el("span", { class: "pill intern" }, "Intern") : null,
           employee.role === "admin" ? el("span", { class: "pill" }, "Admin") : null,
           employee.status === "inactive" ? el("span", { class: "pill absent" }, "Inactive") : null,
           el("button", { class: "btn-sm", type: "button", onclick: () => openEmployeeForm(state, shifts, offices, employee, load) }, "Edit"),
@@ -402,6 +468,7 @@ export async function employeesView(state) {
     debounce = setTimeout(load, 250);
   });
   statusFilter.addEventListener("change", load);
+  typeFilter.addEventListener("change", load);
 
   container.append(
     el("div", { class: "card" }, [
@@ -409,7 +476,7 @@ export async function employeesView(state) {
         el("h2", {}, "Employees"),
         el("button", { class: "btn-primary btn-sm", type: "button", onclick: () => openEmployeeForm(state, shifts, offices, null, load) }, "Add employee"),
       ]),
-      el("div", { class: "row wrap", style: "margin-bottom:8px" }, [search, statusFilter]),
+      el("div", { class: "row wrap", style: "margin-bottom:8px" }, [search, typeFilter, statusFilter]),
       list,
     ])
   );
@@ -434,6 +501,12 @@ async function openEmployeeForm(state, shifts, offices, employee, onDone) {
     el("option", { value: "admin" }, "Administrator"),
   ]);
   role.value = employee?.role || "employee";
+
+  const staffType = el("select", { name: "staffType" }, [
+    el("option", { value: "employee" }, "Employee"),
+    el("option", { value: "intern" }, "Intern"),
+  ]);
+  staffType.value = employee?.staffType || "employee";
   const shiftSelect = el("select", { name: "shiftId" }, [
     el("option", { value: "" }, "Default shift"),
     ...shifts.map((shift) => el("option", { value: shift._id }, `${shift.name} (${shift.startTime}–${shift.endTime})`)),
@@ -464,7 +537,8 @@ async function openEmployeeForm(state, shifts, offices, employee, onDone) {
     isEdit ? null : field("Temporary password", password),
     el("div", { class: "field-row" }, [field("Employee ID", code), field("Phone", phone)]),
     el("div", { class: "field-row" }, [field("Department", department), field("Position", position)]),
-    el("div", { class: "field-row" }, [field("Role", role), field("Shift", shiftSelect)]),
+    el("div", { class: "field-row" }, [field("Type", staffType), field("Role", role)]),
+    field("Shift", shiftSelect, "Leave on the default and they follow their type\u2019s shift \u2014 interns get the shorter one."),
     field("Office", officeSelect, "Check-in is only accepted at this office. Leave as \u201cAny office\u201d to allow all of them."),
     el("fieldset", {}, [
       el("legend", {}, "Their own hours (optional)"),
@@ -610,7 +684,7 @@ const askPassword = () =>
 export async function approvalsView(state) {
   const container = el("div", { class: "stack" });
   const list = el("div", {});
-  const filter = el("select", { style: "max-width:170px" }, [
+  const filter = el("select", { "aria-label": "Filter by decision", style: "max-width:170px" }, [
     el("option", { value: "pending" }, "Pending"),
     el("option", { value: "approved" }, "Approved"),
     el("option", { value: "rejected" }, "Rejected"),
@@ -649,8 +723,9 @@ export async function recordsView(state) {
   const today = todayKey(state.settings.timeZone);
   const body = el("div", {});
 
-  const dateInput = el("input", { type: "date", value: today, style: "max-width:180px" });
-  const departmentSelect = el("select", { style: "max-width:180px" }, [el("option", { value: "" }, "All departments")]);
+  const dateInput = el("input", { type: "date", value: today, "aria-label": "Date", style: "max-width:180px" });
+  const departmentSelect = el("select", { "aria-label": "Filter by department", style: "max-width:180px" },
+    [el("option", { value: "" }, "All departments")]);
   api.departments().then(({ departments }) => {
     for (const department of departments) departmentSelect.append(el("option", { value: department }, department));
   });
@@ -800,6 +875,7 @@ export async function boardView(state) {
   let period = "month";
   let anchor = null; // null means "today", resolved by the server
   let department = "";
+  let staffType = "";
 
   const title = el("h2", {}, "Attendance board");
   const rangeLabel = el("span", { class: "small muted" });
@@ -826,7 +902,8 @@ export async function boardView(state) {
     )
   );
 
-  const departmentSelect = el("select", { style: "max-width:170px" }, [el("option", { value: "" }, "All departments")]);
+  const departmentSelect = el("select", { "aria-label": "Filter by department", style: "max-width:170px" },
+    [el("option", { value: "" }, "All departments")]);
   api.departments().then(({ departments }) => {
     for (const name of departments) departmentSelect.append(el("option", { value: name }, name));
   });
@@ -835,10 +912,20 @@ export async function boardView(state) {
     load();
   });
 
+  const typeSelect = el("select", { "aria-label": "Filter by staff type", style: "max-width:150px" }, [
+    el("option", { value: "" }, "Everyone"),
+    el("option", { value: "employee" }, "Employees"),
+    el("option", { value: "intern" }, "Interns"),
+  ]);
+  typeSelect.addEventListener("change", () => {
+    staffType = typeSelect.value;
+    load();
+  });
+
   const load = async () => {
     mount(body, el("div", { class: "skeleton" }));
     try {
-      const board = await api.board({ period, anchor, department });
+      const board = await api.board({ period, anchor, department, staffType });
       anchor = board.anchor;
       rangeLabel.textContent = board.label;
       prev.onclick = () => {
@@ -865,7 +952,7 @@ export async function boardView(state) {
         el("div", {}, [title, rangeLabel]),
         el("div", { class: "row wrap" }, [prev, todayButton, next]),
       ]),
-      el("div", { class: "row wrap", style: "margin-bottom:14px" }, [switcher, departmentSelect]),
+      el("div", { class: "row wrap", style: "margin-bottom:14px" }, [switcher, departmentSelect, typeSelect]),
       body,
     ])
   );
@@ -902,7 +989,8 @@ function renderBoard(board) {
         el("span", { class: "dot" }),
         el("div", { class: "grow", style: "min-width:0" }, [
           el("div", { class: "name", title: employee.name }, employee.name),
-          el("div", { class: "dept" }, employee.department || "—"),
+          el("div", { class: "dept" },
+            `${employee.department || "—"}${employee.staffType === "intern" ? " · Intern" : ""}`),
         ]),
       ])
     );
@@ -981,9 +1069,19 @@ export async function reportsView(state) {
   api.departments().then(({ departments }) => {
     for (const department of departments) departmentSelect.append(el("option", { value: department }, department));
   });
+  const typeSelect = el("select", { style: "max-width:160px" }, [
+    el("option", { value: "" }, "Everyone"),
+    el("option", { value: "employee" }, "Employees"),
+    el("option", { value: "intern" }, "Interns"),
+  ]);
 
   const body = el("div", {});
-  const params = () => ({ from: fromInput.value, to: toInput.value, department: departmentSelect.value });
+  const params = () => ({
+    from: fromInput.value,
+    to: toInput.value,
+    department: departmentSelect.value,
+    staffType: typeSelect.value,
+  });
 
   const load = async () => {
     mount(body, el("div", { class: "skeleton" }));
@@ -1023,7 +1121,9 @@ export async function reportsView(state) {
     URL.revokeObjectURL(url);
   });
 
-  for (const input of [fromInput, toInput, departmentSelect]) input.addEventListener("change", load);
+  for (const input of [fromInput, toInput, departmentSelect, typeSelect]) {
+    input.addEventListener("change", load);
+  }
 
   container.append(
     el("div", { class: "card" }, [
@@ -1044,6 +1144,14 @@ export async function reportsView(state) {
 function reportTables(report) {
   const wrap = el("div", { class: "stack" });
   const totals = report.totals;
+
+  if (report.best) {
+    const count = (n, singular) => `${n} ${n === 1 ? singular : `${singular}s`}`;
+    wrap.append(bestCard(report.best, {
+      title: "Best in this period",
+      note: `${count(report.staffCounts.employee, "employee")} · ${count(report.staffCounts.intern, "intern")}`,
+    }));
+  }
 
   wrap.append(
     el("div", { class: "grid stats" }, [
@@ -1103,7 +1211,10 @@ function reportTables(report) {
           el("tr", {}, [
             el("td", {}, [
               el("strong", {}, row.employee.name),
-              el("div", { class: "small muted" }, row.employee.department || "—"),
+              el("div", { class: "small muted" }, [
+                row.employee.department || "—",
+                row.employee.staffType === "intern" ? " · Intern" : "",
+              ].join("")),
             ]),
             el("td", { class: "num" }, String(row.summary.presentDays)),
             el("td", { class: "num" }, String(row.summary.absentDays)),
@@ -1374,6 +1485,10 @@ function shiftsCard(shifts, state) {
           el("div", { class: "small muted" }, `${shift.startTime}–${shift.endTime} · ${(shift.workDays || []).map((d) => DAY_NAMES[d]).join(", ")}`),
           el("div", { class: "small muted" }, `${shift.graceMinutes ?? 0} min grace · ${shift.breakMinutes ?? 0} min break`),
         ]),
+        shift.staffType && shift.staffType !== "any"
+          ? el("span", { class: `pill${shift.staffType === "intern" ? " intern" : ""}` },
+              shift.staffType === "intern" ? "Interns" : "Employees")
+          : null,
         shift.isDefault ? el("span", { class: "pill" }, "Default") : null,
         el("button", { class: "btn-sm", type: "button", onclick: () => openShiftForm(shift, reload) }, "Edit"),
       ])
@@ -1400,6 +1515,12 @@ async function openShiftForm(shift, onDone) {
   const breakMinutes = el("input", { type: "number", min: 0, max: 480, value: shift?.breakMinutes ?? 0 });
   const overtime = el("input", { type: "checkbox", checked: shift ? shift.countOvertime !== false : true });
   const isDefault = el("input", { type: "checkbox", checked: !!shift?.isDefault });
+  const shiftFor = el("select", {}, [
+    el("option", { value: "any" }, "Anyone"),
+    el("option", { value: "employee" }, "Employees"),
+    el("option", { value: "intern" }, "Interns"),
+  ]);
+  shiftFor.value = shift?.staffType || "any";
 
   const selected = new Set(shift?.workDays || [1, 2, 3, 4, 5]);
   const dayToggles = DAY_NAMES.map((label, index) => {
@@ -1468,6 +1589,7 @@ async function openShiftForm(shift, onDone) {
             earlyLeaveGraceMinutes: Number(earlyGrace.value),
             breakMinutes: Number(breakMinutes.value),
             countOvertime: overtime.checked,
+            staffType: shiftFor.value,
             isDefault: isDefault.checked,
           };
           try {

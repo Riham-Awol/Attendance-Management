@@ -41,6 +41,9 @@ const employeeCreate = Joi.object({
   email: Joi.string().email().lowercase().required(),
   password: password.required(),
   role: Joi.string().valid("admin", "employee").default("employee"),
+  // What they are to the company, as distinct from what they can do in the
+  // app: an intern can be an admin, and an employee need not be.
+  staffType: Joi.string().valid("employee", "intern").default("employee"),
   employeeCode: Joi.string().trim().max(40).allow("", null),
   department: Joi.string().trim().max(80).allow("", null),
   position: Joi.string().trim().max(80).allow("", null),
@@ -56,6 +59,7 @@ const employeeUpdate = Joi.object({
   name: Joi.string().trim().min(2).max(120),
   email: Joi.string().email().lowercase(),
   role: Joi.string().valid("admin", "employee"),
+  staffType: Joi.string().valid("employee", "intern"),
   employeeCode: Joi.string().trim().max(40).allow("", null),
   department: Joi.string().trim().max(80).allow("", null),
   position: Joi.string().trim().max(80).allow("", null),
@@ -100,6 +104,9 @@ const officeUpdate = officeCreate.fork(["name", "lat", "lng"], (s) => s.optional
 
 const shiftBody = Joi.object({
   name: Joi.string().trim().min(2).max(80).required(),
+  // "any" suits everyone; a typed shift becomes the default for new people of
+  // that type, which is how interns land on shorter hours automatically.
+  staffType: Joi.string().valid("any", "employee", "intern").default("any"),
   startTime: clock.required(),
   endTime: clock.required(),
   workDays: Joi.array().items(Joi.number().integer().min(0).max(6)).min(1).max(7).required(),
@@ -147,6 +154,7 @@ const rangeQuery = Joi.object({
   to: dateKey.required(),
   userId: objectId,
   department: Joi.string().trim().max(80),
+  staffType: Joi.string().valid("employee", "intern"),
   status: Joi.string().max(40),
   includeInactive: Joi.boolean().default(false),
 });
@@ -162,6 +170,7 @@ const boardQuery = Joi.object({
   period: Joi.string().valid("day", "week", "month", "year").default("month"),
   anchor: dateKey,
   department: Joi.string().trim().max(80),
+  staffType: Joi.string().valid("employee", "intern"),
   includeInactive: Joi.boolean().default(false),
 });
 

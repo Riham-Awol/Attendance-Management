@@ -140,3 +140,75 @@ test("two departments of very different sizes stay comparable", () => {
   const large = policy.scoreDepartment(Array.from({ length: 30 }, () => summary({ lateDays: 1 })));
   assert.equal(small.score, large.score);
 });
+
+/* ── Picking a winner ────────────────────────────────────────────────── */
+
+const candidate = (name, over = {}) => ({
+  name,
+  summary: { expectedDays: 20, presentDays: 20, lateDays: 0, lateMinutes: 0, absentDays: 0, permissionsUsed: 0, score: 100, ...over },
+});
+
+test("the best is the highest score among those with enough days behind them", () => {
+  const best = policy.bestOf([
+    candidate("Steady", { score: 96 }),
+    candidate("Top", { score: 99 }),
+    candidate("Middling", { score: 80 }),
+  ]);
+  assert.equal(best.name, "Top");
+  assert.equal(best.eligible, 3);
+  assert.equal(best.tied, false);
+});
+
+test("a single perfect day cannot outrank a near-perfect month", () => {
+  const best = policy.bestOf([
+    candidate("Newcomer", { expectedDays: 1, presentDays: 1, score: 100 }),
+    candidate("Stalwart", { expectedDays: 20, score: 98 }),
+  ]);
+  assert.equal(best.name, "Stalwart", "the newcomer has too little behind the number to rank");
+  assert.equal(best.eligible, 1);
+  assert.equal(best.considered, 2);
+  assert.equal(best.minimumDays, 5);
+});
+
+test("the eligibility threshold is configurable", () => {
+  const rows = [candidate("Short", { expectedDays: 3, presentDays: 3, score: 100 })];
+  assert.equal(policy.bestOf(rows), null);
+  assert.equal(policy.bestOf(rows, { minimumDaysForRanking: 2 }).name, "Short");
+});
+
+test("equal scores go to whoever was expected in more often", () => {
+  const best = policy.bestOf([
+    candidate("Fewer days", { expectedDays: 10, presentDays: 10, score: 100 }),
+    candidate("More days", { expectedDays: 22, presentDays: 22, score: 100 }),
+  ]);
+  assert.equal(best.name, "More days");
+});
+
+test("still tied, the one who lost less time to lateness wins", () => {
+  const best = policy.bestOf([
+    candidate("Often late", { score: 97, lateMinutes: 120 }),
+    candidate("Barely late", { score: 97, lateMinutes: 12 }),
+  ]);
+  assert.equal(best.name, "Barely late");
+});
+
+test("a genuine dead heat is reported as shared, not decided arbitrarily", () => {
+  const best = policy.bestOf([candidate("Ann"), candidate("Bo"), candidate("Cy", { score: 50 })]);
+  assert.equal(best.tied, true);
+  assert.deepEqual(best.tiedWith, ["Bo"]);
+});
+
+test("nobody eligible returns nothing rather than a meaningless winner", () => {
+  assert.equal(policy.bestOf([]), null);
+  assert.equal(policy.bestOf([candidate("Barely there", { expectedDays: 2, presentDays: 2 })]), null);
+  // Someone with no score at all is never the best.
+  assert.equal(policy.bestOf([candidate("Unscored", { score: null })]), null);
+});
+
+test("an intern's shorter shift does not disadvantage them", () => {
+  // The intern owes 20 half-days and attends them all; the employee owes 20
+  // full days and misses one. Scores are rates, so the intern wins on merit.
+  const intern = candidate("Intern", { expectedDays: 20, presentDays: 20, score: policy.scoreFor({ expectedDays: 20, presentDays: 20, lateDays: 0, absentDays: 0, permissionsUsed: 0 }).score });
+  const employee = candidate("Employee", { expectedDays: 20, presentDays: 19, absentDays: 1, score: policy.scoreFor({ expectedDays: 20, presentDays: 19, lateDays: 0, absentDays: 1, permissionsUsed: 0 }).score });
+  assert.equal(policy.bestOf([intern, employee]).name, "Intern");
+});

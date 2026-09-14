@@ -19,13 +19,14 @@ router.get(
   "/summary",
   validate(schemas.rangeQuery, "query"),
   asyncHandler(async (req, res) => {
-    const { from, to, userId, department, includeInactive } = req.validatedQuery;
+    const { from, to, userId, department, staffType, includeInactive } = req.validatedQuery;
     // The summary screen only draws totals, so skip shipping every day row.
     const report = await service.buildReport({
       from,
       to,
       userId,
       department,
+      staffType,
       includeInactive,
       includeDays: !!userId,
     });
@@ -57,8 +58,8 @@ router.get(
   "/export",
   validate(schemas.exportQuery, "query"),
   asyncHandler(async (req, res) => {
-    const { from, to, userId, department, includeInactive, format, sheet } = req.validatedQuery;
-    const report = await service.buildReport({ from, to, userId, department, includeInactive });
+    const { from, to, userId, department, staffType, includeInactive, format, sheet } = req.validatedQuery;
+    const report = await service.buildReport({ from, to, userId, department, staffType, includeInactive });
     const stamp = `${from}_to_${to}`;
 
     if (format === "csv") {

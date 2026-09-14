@@ -10,6 +10,9 @@ const { STATUS } = require("./attendance-rules");
  * a summary plus a policy — no database, no clock — and every figure it
  * produces can be traced back to the days it came from.
  */
+const STAFF_TYPES = ["employee", "intern"];
+const STAFF_LABELS = { employee: "Employee", intern: "Intern" };
+
 const DEFAULT_POLICY = {
   // Per calendar month, per employee.
   maxLateDaysPerMonth: 3,
@@ -18,6 +21,10 @@ const DEFAULT_POLICY = {
   // Deducted for each unexcused absent day.
   absentDeductionPerDay: 500,
   currency: "ETB",
+  // A perfect week should not outrank a near-perfect month. Nobody is
+  // eligible to be "best" until they were expected in on at least this many
+  // days in the period being ranked.
+  minimumDaysForRanking: 5,
 };
 
 const withPolicyDefaults = (policy) => ({ ...DEFAULT_POLICY, ...(policy || {}) });
@@ -150,7 +157,61 @@ function scoreDepartment(memberSummaries, policy) {
   };
 }
 
+/**
+ * Pick the best of a set of scored people.
+ *
+ * Two rules keep this honest. Someone with almost no attendance expected of
+ * them is not eligible at all — otherwise a new joiner with one perfect day
+ * tops the list ahead of a colleague who was there every day for a month. And
+ * ties are broken by who was expected in more, then by who lost less time to
+ * lateness, so the winner is the one with more behind the number.
+ *
+ * Returns null when nobody qualifies, which the caller must say out loud
+ * rather than presenting an arbitrary name as the winner.
+ */
+function bestOf(candidates, policy) {
+  const rules = withPolicyDefaults(policy);
+  const eligible = candidates.filter(
+    (candidate) =>
+      candidate.summary.score !== null &&
+      candidate.summary.score !== undefined &&
+      (candidate.summary.expectedDays || 0) >= rules.minimumDaysForRanking
+  );
+
+  if (eligible.length === 0) return null;
+
+  const ranked = [...eligible].sort(
+    (a, b) =>
+      b.summary.score - a.summary.score ||
+      (b.summary.expectedDays || 0) - (a.summary.expectedDays || 0) ||
+      (a.summary.lateMinutes || 0) - (b.summary.lateMinutes || 0) ||
+      String(a.name || "").localeCompare(String(b.name || ""))
+  );
+
+  const winner = ranked[0];
+  // A shared first place is reported as such rather than silently picking one.
+  const sharedWith = ranked.filter(
+    (row) =>
+      row !== winner &&
+      row.summary.score === winner.summary.score &&
+      (row.summary.expectedDays || 0) === (winner.summary.expectedDays || 0) &&
+      (row.summary.lateMinutes || 0) === (winner.summary.lateMinutes || 0)
+  );
+
+  return {
+    ...winner,
+    tied: sharedWith.length > 0,
+    tiedWith: sharedWith.map((row) => row.name).filter(Boolean),
+    eligible: eligible.length,
+    considered: candidates.length,
+    minimumDays: rules.minimumDaysForRanking,
+  };
+}
+
 module.exports = {
+  STAFF_TYPES,
+  STAFF_LABELS,
+  bestOf,
   DEFAULT_POLICY,
   WEIGHTS,
   withPolicyDefaults,

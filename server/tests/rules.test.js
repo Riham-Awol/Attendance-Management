@@ -498,3 +498,132 @@ test("an unknown period is refused rather than guessed at", async () => {
     (err) => err.status === 400
   );
 });
+
+/* ── Interns ─────────────────────────────────────────────────────────── */
+
+async function withIntern(w) {
+  const internShift = await settingsService.createShift({
+    name: "Intern (9–1)",
+    startTime: "09:00",
+    endTime: "13:00",
+    workDays: [0, 1, 2, 3, 4, 5, 6],
+    graceMinutes: 10,
+    breakMinutes: 0,
+    staffType: "intern",
+    isDefault: true,
+  });
+  const intern = await employeesService.create({
+    name: "Iris Intern",
+    email: "iris@wetech.co",
+    password: "password123",
+    department: "Design",
+    staffType: "intern",
+  });
+  return { internShift, intern: await employeesService.getById(intern._id) };
+}
+
+test("a new intern lands on the intern shift without being assigned one", async () => {
+  const w = await world();
+  const { intern } = await withIntern(w);
+
+  const shift = await settingsService.getShiftForUser(intern);
+  assert.equal(shift.name, "Intern (9–1)");
+  assert.equal(shift.endTime, "13:00");
+
+  // Employees are untouched by the intern default.
+  const employeeShift = await settingsService.getShiftForUser(w.sam);
+  assert.equal(employeeShift.name, "Standard");
+  assert.equal(employeeShift.endTime, "17:00");
+});
+
+test("an intern is judged against their own shorter day, not the employees'", async () => {
+  const w = await world();
+  const { intern } = await withIntern(w);
+
+  // 09:00 to 13:00 is a full day for an intern and would be half of one for an
+  // employee on the standard shift.
+  await punch("checkIn", intern, inside(HQ), "09:00");
+  await punch("checkOut", intern, inside(HQ), "13:00");
+
+  const record = await attendanceService.findRecord(intern._id, "2026-09-08");
+  assert.equal(record.status, "present");
+  assert.equal(record.workedMinutes, 240);
+  assert.equal(record.lateMinutes, 0);
+});
+
+test("people are listed and filtered by whether they are staff or interns", async () => {
+  const w = await world();
+  await withIntern(w);
+
+  const interns = await employeesService.list({ staffType: "intern" });
+  assert.deepEqual(interns.map((p) => p.name), ["Iris Intern"]);
+
+  // Accounts created before interns existed carry no staffType and must still
+  // come back as employees.
+  const employees = await employeesService.list({ staffType: "employee" });
+  const names = employees.map((p) => p.name).sort();
+  assert.deepEqual(names, ["Ada Admin", "Sam Staff"]);
+});
+
+test("the report names the best employee, the best intern and the best department", async () => {
+  const w = await world();
+  const { intern } = await withIntern(w);
+
+  // A full week each: the intern perfect, Sam late every day.
+  const week = ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-05"];
+  for (const date of week) {
+    await punch("checkIn", intern, inside(HQ), "09:00", date);
+    await punch("checkOut", intern, inside(HQ), "13:00", date);
+    await punch("checkIn", w.sam, inside(HQ), "09:45", date);
+    await punch("checkOut", w.sam, inside(HQ), "17:00", date);
+  }
+
+  const restore = freeze("23:00", "2026-09-05");
+  try {
+    const report = await reportsService.buildReport({ from: "2026-09-01", to: "2026-09-05" });
+
+    assert.equal(report.best.intern.name, "Iris Intern");
+    assert.equal(report.best.intern.staffType, "intern");
+    assert.equal(report.best.employee.name, "Sam Staff");
+    assert.equal(report.best.department.department, "Design");
+    assert.deepEqual(report.staffCounts, { employee: 2, intern: 1 });
+
+    // The intern's score beats the employee's, which is the point: a shorter
+    // day is not an easier standard, it is a different one.
+    assert.ok(report.best.intern.summary.score > report.best.employee.summary.score);
+  } finally {
+    restore();
+  }
+});
+
+test("nobody is crowned when there is too little attendance to judge", async () => {
+  const w = await world();
+  await withIntern(w);
+
+  const restore = freeze("23:00", "2026-09-02");
+  try {
+    // A two-day range is below the five-day minimum for ranking.
+    const report = await reportsService.buildReport({ from: "2026-09-01", to: "2026-09-02" });
+    assert.equal(report.best.employee, null);
+    assert.equal(report.best.intern, null);
+  } finally {
+    restore();
+  }
+});
+
+test("reports and the board can be narrowed to interns", async () => {
+  const w = await world();
+  await withIntern(w);
+
+  const restore = freeze("23:00", "2026-09-08");
+  try {
+    const report = await reportsService.buildReport({ from: "2026-09-01", to: "2026-09-08", staffType: "intern" });
+    assert.deepEqual(report.employees.map((r) => r.employee.name), ["Iris Intern"]);
+
+    const board = await boardService.buildBoard({ period: "week", anchor: "2026-09-08", staffType: "intern" });
+    assert.equal(board.employees.length, 1);
+    assert.equal(board.employees[0].staffType, "intern");
+  } finally {
+    restore();
+  }
+});

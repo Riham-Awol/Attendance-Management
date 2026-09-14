@@ -12,11 +12,16 @@ const publicUser = (user) => {
   return rest;
 };
 
-async function list({ search, department, status, role } = {}) {
+async function list({ search, department, status, role, staffType } = {}) {
   const query = {};
   if (status) query.status = status;
   if (department) query.department = department;
   if (role) query.role = role;
+  if (staffType) {
+    // People created before interns existed have no staffType and are
+    // employees, so the employee filter has to match a missing field too.
+    query.staffType = staffType === "employee" ? { $in: ["employee", null] } : staffType;
+  }
   if (search) {
     const safe = String(search).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     query.$or = [
@@ -53,6 +58,7 @@ async function create(input) {
     email,
     password: await hashPassword(input.password),
     role: input.role || ROLES.EMPLOYEE,
+    staffType: input.staffType || "employee",
     employeeCode: input.employeeCode || null,
     department: input.department || null,
     position: input.position || null,

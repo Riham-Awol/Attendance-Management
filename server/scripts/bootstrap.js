@@ -19,9 +19,21 @@ async function bootstrapAdmin() {
       ...DEFAULT_SHIFT,
       name: "Standard (9–5)",
       breakMinutes: 60,
+      staffType: "any",
       isDefault: true,
     });
-    console.log("[attendance] created the default shift");
+    // Interns work shorter days, so they get their own shift from the start
+    // and new interns land on it without anyone remembering to set it.
+    await settingsService.createShift({
+      ...DEFAULT_SHIFT,
+      name: "Intern (9–1)",
+      startTime: "09:00",
+      endTime: "13:00",
+      breakMinutes: 0,
+      staffType: "intern",
+      isDefault: true,
+    });
+    console.log("[attendance] created the default shifts");
   }
 
   const adminCount = await collection(COLLECTIONS.users).countDocuments({ role: ROLES.ADMIN });

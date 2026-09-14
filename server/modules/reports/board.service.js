@@ -70,7 +70,7 @@ const DAY_INITIALS = ["S", "M", "T", "W", "T", "F", "S"];
 /** Statuses that mean the person was physically there. */
 const ATTENDED = [STATUS.PRESENT, STATUS.LATE, STATUS.HALF_DAY, STATUS.SHORT_DAY, STATUS.MISSING_CHECKOUT];
 
-async function buildBoard({ period = "month", anchor, department, includeInactive = false }) {
+async function buildBoard({ period = "month", anchor, department, staffType, includeInactive = false }) {
   if (!PERIODS.includes(period)) throw ApiError.badRequest(`Unknown period: ${period}`);
 
   const settings = await settingsService.getSettings();
@@ -80,6 +80,7 @@ async function buildBoard({ period = "month", anchor, department, includeInactiv
 
   const users = await employeesService.list({
     department,
+    staffType,
     status: includeInactive ? undefined : "active",
   });
 
@@ -95,6 +96,7 @@ async function buildBoard({ period = "month", anchor, department, includeInactiv
         _id: employee._id,
         name: employee.name,
         department: employee.department || null,
+        staffType: employee.staffType || "employee",
         color: colors.get(String(employee._id)).hex,
         colorName: colors.get(String(employee._id)).name,
         cells: period === "year" ? yearCells(columns, byDate) : dayCells(columns, byDate),

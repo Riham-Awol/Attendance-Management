@@ -541,3 +541,50 @@ test("the attendance board shows who came in, across day, week, month and year",
     await context.close();
   }
 });
+
+
+test("an admin adds an intern, and the reports name a best of each kind", async () => {
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 950 },
+    permissions: ["geolocation"],
+    geolocation: { latitude: OFFICE.lat, longitude: OFFICE.lng, accuracy: 12 },
+    locale: "en-GB",
+  });
+  const page = await context.newPage();
+  try {
+    await signIn(page, "admin@browser.co");
+
+    // Add an intern through the form.
+    await page.getByRole("button", { name: "People" }).click();
+    await page.getByRole("button", { name: "Add employee" }).click();
+    await page.getByLabel("Full name").fill("Iris Intern");
+    await page.getByLabel("Email").fill("iris@browser.co");
+    await page.getByLabel("Temporary password").fill("password123");
+    await page.getByLabel("Department").fill("Design");
+    await page.getByLabel("Type", { exact: true }).selectOption("intern");
+    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByText("Employee added").waitFor({ timeout: 10000 });
+
+    // They are marked as an intern in the list, and the filter finds them.
+    await page.locator(".pill.intern").first().waitFor({ timeout: 10000 });
+    await page.getByLabel("Filter by staff type").selectOption("intern");
+    await page.waitForTimeout(800);
+    const names = await page.locator(".list-item strong").allTextContents();
+    assert.deepEqual(names, ["Iris Intern"], `intern filter showed ${names.join(", ")}`);
+
+    // The reports screen names a best employee, a best intern and a leading
+    // department — or says plainly that there is not enough to judge.
+    await page.getByRole("button", { name: "Reports" }).click();
+    await page.getByRole("heading", { name: "Best in this period" }).waitFor({ timeout: 20000 });
+    const best = page.locator(".card", { hasText: "Best in this period" }).last();
+    for (const label of ["Best employee", "Best intern", "Leading department"]) {
+      await best.getByText(label, { exact: true }).waitFor();
+    }
+    const summary = await best.textContent();
+    // Counts are pluralised properly: "1 intern", never "1 interns".
+    assert.doesNotMatch(summary, /\b1 (employees|interns)\b/, summary);
+    assert.match(summary, /\d+ employees? · \d+ interns?/);
+  } finally {
+    await context.close();
+  }
+});

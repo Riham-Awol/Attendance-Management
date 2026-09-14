@@ -889,3 +889,8 @@ main > * { animation: view-in 0.35s ease both; }
   .board .who .name { font-size: 0.76rem; }
   .board .cell { height: 26px; }
 }
+
+
+/* Interns are marked wherever people are listed, so a shorter day is never
+   mistaken for a short day. */
+.pill.intern { background: var(--info-soft); color: var(--info); }
