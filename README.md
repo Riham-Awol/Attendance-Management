@@ -205,6 +205,10 @@ Open `https://your-app.vercel.app/api/health`. A working deployment answers:
   would 404. The rewrite in `vercel.json` is what preserves it.
 - **503 `configuration_error`** — the response lists exactly which environment
   variables are missing or invalid. Set them and redeploy.
+- **Environment variables only reach a *new* deployment.** Adding one to an
+  existing project changes nothing until you redeploy, and Vercel scopes each
+  variable to Production / Preview / Development separately — a variable set
+  only for Preview is absent in Production.
 - **503 with a database message** — the app is running fine and cannot reach
   MongoDB. Check `MONGO_URI`, and that Atlas *Network Access* allows
   `0.0.0.0/0`.

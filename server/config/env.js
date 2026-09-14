@@ -36,25 +36,18 @@ if (isProduction && JWT_SECRET && JWT_SECRET.length < 32) {
   );
 }
 
-if (problems.length > 0) {
-  const error = new Error(
-    `The server is not configured correctly:\n` +
-      problems.map((problem) => `  - ${problem}`).join("\n") +
-      `\n\nSet these in your host's environment settings` +
-      (isServerless ? " (Vercel: Project → Settings → Environment Variables), then redeploy." : ".") +
-      `\nGenerate a secret with:` +
-      `\n  node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`
-  );
-  error.code = "configuration_error";
-  error.problems = problems;
-  throw error;
-}
-
-module.exports = {
+const config = {
   isProduction,
   isServerless,
   port: Number(process.env.PORT || 4000),
-  mongoUri: required("MONGO_URI", "mongodb://127.0.0.1:27017"),
+  // Localhost is a sensible default when developing and a trap anywhere else:
+  // a deployed app that quietly tries 127.0.0.1 reports "cannot reach the
+  // database" and sends you hunting through your cluster's settings, when the
+  // real problem is that the variable was never set.
+  mongoUri: required(
+    "MONGO_URI",
+    isProduction || isServerless ? undefined : "mongodb://127.0.0.1:27017"
+  ),
   dbName: process.env.DB_NAME || "office_attendance",
   jwtSecret: JWT_SECRET,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "12h",
@@ -89,3 +82,21 @@ module.exports = {
     from: process.env.MAIL_FROM || "Attendance <no-reply@office.local>",
   },
 };
+
+// Checked only once the whole configuration above has been read, so a single
+// failure reports every problem rather than the first one encountered.
+if (problems.length > 0) {
+  const error = new Error(
+    `The server is not configured correctly:\n` +
+      problems.map((problem) => `  - ${problem}`).join("\n") +
+      `\n\nSet these in your host's environment settings` +
+      (isServerless ? " (Vercel: Project → Settings → Environment Variables), then redeploy." : ".") +
+      `\nGenerate a secret with:` +
+      `\n  node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`
+  );
+  error.code = "configuration_error";
+  error.problems = problems;
+  throw error;
+}
+
+module.exports = config;

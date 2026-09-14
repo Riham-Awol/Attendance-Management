@@ -33,7 +33,11 @@ async function connect(uri = env.mongoUri, dbName = env.dbName) {
   connecting = (async () => {
     const created = new MongoClient(uri, {
       maxPoolSize: env.isServerless ? 5 : 10,
-      serverSelectionTimeoutMS: 10000,
+      // A cold serverless instance has to resolve the SRV record, complete a
+      // TLS handshake and wait for a free-tier cluster to answer. Ten seconds
+      // was tight enough to fail for reasons that had nothing to do with the
+      // configuration; the function itself is allowed thirty.
+      serverSelectionTimeoutMS: env.isServerless ? 20000 : 10000,
     });
     await created.connect();
     client = created;

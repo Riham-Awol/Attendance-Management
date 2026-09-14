@@ -12,6 +12,9 @@ const assert = require("node:assert/strict");
 process.env.VERCEL = "1"; // must be set before config/env is first required
 process.env.JWT_SECRET = "test-secret-that-is-long-enough-to-pass";
 process.env.CRON_SECRET = "super-secret-cron-token";
+// A hosted deployment must declare its database; the in-memory stand-in below
+// means nothing actually dials this.
+process.env.MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/test";
 
 const env = require("../config/env");
 const db = require("../config/db");

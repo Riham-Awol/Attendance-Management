@@ -144,8 +144,9 @@ test("the serverless entry reports an unreachable database with a hint, not a ba
       NODE_ENV: "production",
       VERCEL: "1",
       JWT_SECRET: "x".repeat(48),
-      // A port nothing listens on: server selection fails fast.
-      MONGO_URI: "mongodb://127.0.0.1:27099/attendance",
+      // A hostname that cannot resolve, so this fails fast and deterministically
+      // rather than waiting out the server-selection timeout.
+      MONGO_URI: "mongodb://cluster.invalid:27017/attendance",
     },
     script
   );
@@ -153,7 +154,54 @@ test("the serverless entry reports an unreachable database with a hint, not a ba
   const { status, body } = JSON.parse(result.stdout.trim().split("\n").pop());
   assert.equal(status, 503);
   assert.equal(body.error.code, "database_unavailable");
-  assert.match(body.error.hint, /Network Access|Check MONGO_URI/);
+  assert.match(body.error.hint, /hostname in MONGO_URI could not be resolved/);
   assert.ok(body.error.detail, "the underlying driver error should be reported");
   assert.ok(!/:.*@/.test(body.error.detail), "no credentials in the detail");
+});
+
+test("a hosted deployment with no MONGO_URI says so instead of trying localhost", () => {
+  const result = loadIn(
+    { NODE_ENV: "production", VERCEL: "1", JWT_SECRET: "x".repeat(48), MONGO_URI: "" },
+    REPORT_CONFIG_ERROR
+  );
+  const body = JSON.parse(result.stdout);
+  assert.equal(body.code, "configuration_error");
+  assert.deepEqual(body.problems, ["MONGO_URI is not set."]);
+});
+
+test("every configuration problem is reported in one pass, not one per redeploy", () => {
+  // This is what the validation gate's position guarantees: a variable read
+  // while building the config object must still be checked.
+  const result = loadIn(
+    { NODE_ENV: "production", VERCEL: "1", JWT_SECRET: "", MONGO_URI: "" },
+    REPORT_CONFIG_ERROR
+  );
+  const body = JSON.parse(result.stdout);
+  assert.deepEqual(body.problems, ["JWT_SECRET is not set.", "MONGO_URI is not set."]);
+});
+
+test("development keeps its localhost default", () => {
+  const result = loadIn(
+    { NODE_ENV: "development", VERCEL: "", JWT_SECRET: "", MONGO_URI: "" },
+    `console.log(JSON.stringify({ uri: require("./server/config/env.js").mongoUri }))`
+  );
+  assert.equal(JSON.parse(result.stdout).uri, "mongodb://127.0.0.1:27017");
+});
+
+test("a deployment pointed at localhost is told the variable is missing, not to check its cluster", () => {
+  const { describeDatabaseError } = require("../helpers/startup-diagnostics");
+  const err = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:27017"), {
+    name: "MongoServerSelectionError",
+  });
+  const described = describeDatabaseError(err);
+  assert.match(described.hint, /MONGO_URI is not set for this environment/);
+  assert.doesNotMatch(described.hint, /Network Access/, "sending someone to the IP allowlist here wastes their time");
+});
+
+test("an unresolvable cluster hostname is distinguished from a blocked one", () => {
+  const { describeDatabaseError } = require("../helpers/startup-diagnostics");
+  const err = Object.assign(new Error("querySrv ENOTFOUND _mongodb._tcp.clustr0.x.mongodb.net"), {
+    name: "MongoServerSelectionError",
+  });
+  assert.match(describeDatabaseError(err).hint, /hostname in MONGO_URI could not be resolved/);
 });
