@@ -2,7 +2,7 @@ import { api } from "../api.js";
 import {
   el, mount, field, toast, modal, confirmAction, empty, statusPill, formatDuration,
   formatDate, formatDateLong, monthRange, todayKey, initials,
-  LEAVE_LABELS, STATUS_LABELS, icon, withBusy,
+  LEAVE_LABELS, STATUS_LABELS, icon, withBusy, scene, tiltOnPointer, celebrate,
 } from "../ui.js";
 import { bestPosition, currentPosition, nearestOffice, supported as geoSupported } from "../geo.js";
 
@@ -32,11 +32,16 @@ export async function homeView(state) {
 
   const punchButton = el("button", { class: "punch", type: "button" });
   const hero = el("div", { class: "card hero" }, [
+    scene(3),
     clock,
     el("div", { class: "date" }, formatDateLong(today.date)),
     punchButton,
     geoLine,
   ]);
+
+  // The button tilts towards the pointer across the whole hero, so it reads as
+  // an object sitting in the card rather than a flat circle.
+  state.onLeaveView(tiltOnPointer(punchButton, { scope: hero, max: 10 }));
 
   const renderPunch = () => {
     punchButton.className = `punch${today.canCheckOut ? " out" : ""}`;
@@ -94,6 +99,7 @@ export async function homeView(state) {
           : await api.checkOut({ lat: point.lat, lng: point.lng, accuracy: point.accuracy });
 
         Object.assign(today, await api.today());
+        celebrate(punchButton);
         toast(response.message, "ok");
       });
     } catch (error) {

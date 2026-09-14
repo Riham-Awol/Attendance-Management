@@ -123,3 +123,40 @@ test("an unknown API endpoint is a clean 404", async () => {
   assert.equal(response.status, 404);
   assert.equal((await response.json()).error.code, "not_found");
 });
+
+
+const post = (path, body) =>
+  fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+test("one colleague's failed sign-ins do not lock out everyone else on the office network", async () => {
+  // Every request here comes from the same address, as it would behind one
+  // office router. Ada fails repeatedly and burns her own budget.
+  for (let i = 0; i < 12; i += 1) {
+    await post("/api/auth/login", { email: "admin@serverless.co", password: "wrong-password" });
+  }
+  const locked = await post("/api/auth/login", { email: "admin@serverless.co", password: "wrong" });
+  assert.equal(locked.status, 429, "repeated failures on one account should be throttled");
+
+  // A colleague on the same network signs in normally.
+  const colleague = await post("/api/auth/login", { email: "someone.else@serverless.co", password: "whatever" });
+  assert.equal(colleague.status, 401, "a different account must still be answered, not throttled");
+});
+
+test("successful sign-ins never spend the failure budget", async () => {
+  await employeesService.create({
+    name: "Busy Office",
+    email: "busy@serverless.co",
+    password: "password123",
+    mustChangePassword: false,
+  });
+
+  // A whole office signing in one after another, far more than the limit.
+  for (let i = 0; i < 15; i += 1) {
+    const response = await post("/api/auth/login", { email: "busy@serverless.co", password: "password123" });
+    assert.equal(response.status, 200, `sign-in ${i + 1} should succeed, not be rate limited`);
+  }
+});

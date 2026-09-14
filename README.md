@@ -1,6 +1,7 @@
-# Office Attendance
+# weTech Attendance Management
 
-A geofenced attendance system for a single office (or several). Staff check in
+**weTech Attendance Management** — a geofenced attendance system for a single
+office (or several). Staff check in
 and out from their phone; the app only accepts a punch made inside an office
 boundary you define. It tracks lateness, absence, early departures and
 overtime against each person's shift, handles leave and hourly permission
@@ -161,6 +162,7 @@ and only if no admin exists yet. If you let it run without them, it creates
 `admin@office.local` with the password `ChangeMe123!` — which is the account
 you would then have to sign in with.
 | `CRON_SECRET` | Another long random string; Vercel sends it to the job endpoints |
+| `LOGIN_ATTEMPT_LIMIT` | Optional. Failed sign-ins allowed per account per network per 15 minutes (default 10) |
 
 `NODE_ENV` is set to `production` by Vercel automatically, which is what makes
 the server reject a weak `JWT_SECRET` — so make it a real random string.

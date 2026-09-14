@@ -248,3 +248,108 @@ export const ICONS = {
 };
 
 export const icon = (name) => el("span", { html: ICONS[name] || "", class: "icon" });
+
+/* ── 3D ──────────────────────────────────────────────────────────────── */
+
+const prefersReducedMotion = () =>
+  window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/**
+ * A backdrop of slowly drifting 3D shapes.
+ *
+ * Decorative only: it is inert to the pointer, hidden from assistive
+ * technology, and not rendered at all for anyone who has asked for less
+ * motion or is on a small screen, where it would only cost battery.
+ */
+export function scene(count = 5) {
+  const host = el("div", { class: "scene", "aria-hidden": "true" });
+  if (prefersReducedMotion()) return host;
+
+  // Anchored to whichever edge they sit near, so a shape can never be clipped
+  // by the container it decorates — which is what a left percentage plus a
+  // fixed width does on a narrow screen.
+  const positions = [
+    { top: "10%", left: "7%" },
+    { top: "62%", right: "8%" },
+    { bottom: "10%", left: "12%" },
+    { top: "16%", right: "16%" },
+    { bottom: "28%", right: "32%" },
+  ];
+
+  for (let i = 0; i < Math.min(count, positions.length); i += 1) {
+    const isCube = i % 2 === 0;
+    const shape = el("div", {
+      class: `shape ${isCube ? "cube" : "ring"}`,
+      style: `${styleOf(positions[i])};animation-delay:${i * -3.5}s;animation-duration:${16 + i * 3}s`,
+    });
+    if (isCube) {
+      for (const face of ["f", "b", "l", "r", "t", "u"]) {
+        shape.append(el("div", { class: `face ${face}` }));
+      }
+    }
+    host.append(shape);
+  }
+  return host;
+}
+
+const styleOf = (position) =>
+  Object.entries(position)
+    .map(([key, value]) => `${key}:${value}`)
+    .join(";");
+
+/**
+ * Tilt an element towards the pointer.
+ *
+ * Only for devices with a real pointer: on a touchscreen the finger is on top
+ * of the thing it would tilt, so the effect is invisible and the listeners are
+ * pure cost. Returns a teardown function.
+ */
+export function tiltOnPointer(target, { max = 9, scope = target } = {}) {
+  if (prefersReducedMotion() || !window.matchMedia("(hover: hover)").matches) {
+    return () => {};
+  }
+
+  let frame = null;
+  const onMove = (event) => {
+    if (frame) return; // one update per frame, no more
+    frame = requestAnimationFrame(() => {
+      frame = null;
+      const box = scope.getBoundingClientRect();
+      if (!box.width || !box.height) return;
+      const x = (event.clientX - box.left) / box.width - 0.5;
+      const y = (event.clientY - box.top) / box.height - 0.5;
+      target.style.setProperty("--tilt-y", `${(x * max * 2).toFixed(2)}deg`);
+      target.style.setProperty("--tilt-x", `${(-y * max * 2).toFixed(2)}deg`);
+    });
+  };
+
+  const reset = () => {
+    if (frame) cancelAnimationFrame(frame);
+    frame = null;
+    target.style.setProperty("--tilt-x", "0deg");
+    target.style.setProperty("--tilt-y", "0deg");
+  };
+
+  scope.addEventListener("pointermove", onMove);
+  scope.addEventListener("pointerleave", reset);
+
+  return () => {
+    scope.removeEventListener("pointermove", onMove);
+    scope.removeEventListener("pointerleave", reset);
+    reset();
+  };
+}
+
+/** The flip-and-pulse that confirms a punch landed. */
+export function celebrate(button) {
+  if (prefersReducedMotion()) return;
+
+  button.classList.add("confirmed");
+  button.addEventListener("animationend", () => button.classList.remove("confirmed"), { once: true });
+
+  const parent = button.parentElement;
+  if (!parent) return;
+  const pulse = el("div", { class: "punch-pulse", "aria-hidden": "true" });
+  parent.append(pulse);
+  pulse.addEventListener("animationend", () => pulse.remove(), { once: true });
+}

@@ -1,5 +1,5 @@
 import { api, getToken, setToken, setUnauthorizedHandler } from "./api.js";
-import { $, el, mount, field, toast, icon } from "./ui.js";
+import { $, el, mount, field, toast, icon, scene, tiltOnPointer } from "./ui.js";
 import { homeView, myAttendanceView, myLeaveView, profileView, openPasswordForm } from "./views/employee.js";
 import {
   dashboardView, employeesView, approvalsView, recordsView, reportsView, settingsView,
@@ -120,17 +120,17 @@ function renderAuth(message) {
     }
   });
 
-  mount(
-    root,
-    el("div", { class: "auth" },
-      el("div", { class: "card" }, [
-        el("img", { class: "logo", src: "/icons/icon-192.png", alt: "" }),
-        el("h1", { class: "center" }, "Attendance"),
-        el("p", { class: "center muted small" }, message || "Sign in to check in and out."),
-        form,
-      ])
-    )
-  );
+  const card = el("div", { class: "card tilt" }, [
+    el("img", { class: "logo", src: "/icons/icon-192.png", alt: "" }),
+    el("h1", { class: "center" }, "weTech"),
+    el("p", { class: "center muted", style: "margin-bottom:14px" }, "Attendance Management"),
+    el("p", { class: "center muted small" }, message || "Sign in to check in and out."),
+    form,
+  ]);
+
+  const auth = el("div", { class: "auth tilt-scene" }, [scene(5), card]);
+  mount(root, auth);
+  tiltOnPointer(card, { scope: auth, max: 6 });
 }
 
 /* ── App shell ───────────────────────────────────────────────────────── */
@@ -173,7 +173,10 @@ async function renderApp() {
     el("header", { class: "topbar" }, [
       el("div", { class: "brand" }, [
         el("img", { src: "/icons/icon-192.png", alt: "" }),
-        el("span", {}, state.settings.companyName || "Attendance"),
+        el("span", { class: "brand-name" }, [
+          el("span", { class: "product" }, "weTech Attendance"),
+          el("span", {}, state.settings.companyName || "Attendance"),
+        ]),
       ]),
       el("div", { class: "grow" }),
       el("span", { class: "small muted" }, state.user.name),

@@ -1,7 +1,7 @@
 {
-  "name": "Office Attendance",
-  "short_name": "Attendance",
-  "description": "Check in and out at the office, request leave, and see your attendance.",
+  "name": "weTech Attendance Management",
+  "short_name": "weTech Attendance",
+  "description": "weTech Attendance Management: check in and out at the office, request leave, and see your attendance.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

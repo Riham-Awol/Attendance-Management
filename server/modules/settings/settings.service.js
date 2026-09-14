@@ -12,7 +12,7 @@ const SETTINGS_ID = "org";
 
 const DEFAULT_SETTINGS = {
   _id: SETTINGS_ID,
-  companyName: "My Office",
+  companyName: "weTech",
   timeZone: env.defaultTimeZone,
   geo: { accuracySlackMeters: 75, maxAccuracyMeters: 200 },
   alerts: {

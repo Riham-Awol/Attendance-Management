@@ -51,6 +51,8 @@ const config = {
   dbName: process.env.DB_NAME || "office_attendance",
   jwtSecret: JWT_SECRET,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "12h",
+  // Failed sign-ins allowed per account, per network, per 15 minutes.
+  loginAttemptLimit: Number(process.env.LOGIN_ATTEMPT_LIMIT || 10),
   // Every date and shift time in the app is interpreted in this zone.
   defaultTimeZone: process.env.DEFAULT_TIMEZONE || "Africa/Addis_Ababa",
   corsOrigins: (process.env.CORS_ORIGINS || "")

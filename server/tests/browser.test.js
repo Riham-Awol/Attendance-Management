@@ -344,3 +344,122 @@ test("a setup failure is shown on the sign-in screen, not left in the console", 
     await new Promise((resolve) => broken.close(resolve));
   }
 });
+
+
+/** Widths that matter: a phone, a tablet in portrait, and a desktop. */
+const VIEWPORTS = [
+  ["phone", { width: 390, height: 844 }],
+  ["tablet portrait", { width: 834, height: 1112 }],
+  ["tablet landscape", { width: 1112, height: 834 }],
+  ["desktop", { width: 1440, height: 900 }],
+];
+
+test("the app is branded weTech Attendance Management", async () => {
+  const { context, page } = await openPhone(OFFICE);
+  try {
+    await page.goto(baseUrl);
+    assert.equal(await page.title(), "weTech Attendance Management");
+
+    const manifest = await page.evaluate(() => fetch("/manifest.webmanifest").then((r) => r.json()));
+    assert.equal(manifest.name, "weTech Attendance Management");
+    assert.equal(manifest.short_name, "weTech Attendance");
+
+    // The sign-in card names the product, not a generic word.
+    await page.getByRole("heading", { name: "weTech" }).waitFor({ timeout: 10000 });
+    await page.getByText("Attendance Management").first().waitFor();
+  } finally {
+    await context.close();
+  }
+});
+
+test("no screen scrolls sideways at any supported width", async () => {
+  for (const [label, viewport] of VIEWPORTS) {
+    const context = await browser.newContext({
+      viewport,
+      permissions: ["geolocation"],
+      geolocation: { latitude: OFFICE.lat, longitude: OFFICE.lng, accuracy: 12 },
+      locale: "en-GB",
+    });
+    const page = await context.newPage();
+    try {
+      await page.goto(baseUrl);
+      await signIn(page, "admin@browser.co");
+      await page.getByRole("heading", { name: "Today" }).waitFor({ timeout: 20000 });
+
+      // Every admin screen, since the tables are the usual culprit.
+      for (const tab of ["Dashboard", "Records", "People", "Reports", "Settings", "Check in"]) {
+        await page.getByRole("button", { name: tab }).click();
+        await page.waitForTimeout(400);
+        const overflow = await page.evaluate(() => ({
+          scroll: document.documentElement.scrollWidth,
+          client: document.documentElement.clientWidth,
+        }));
+        assert.ok(
+          overflow.scroll <= overflow.client + 1,
+          `${label} / ${tab}: page scrolls sideways (${overflow.scroll} > ${overflow.client})`
+        );
+      }
+    } finally {
+      await context.close();
+    }
+  }
+});
+
+test("the navigation stays reachable and tappable on a phone", async () => {
+  const { context, page } = await openPhone(OFFICE);
+  try {
+    await signIn(page, "sam@browser.co");
+    await page.locator(".punch").waitFor({ timeout: 15000 });
+
+    const bar = page.locator(".tabbar");
+    const box = await bar.boundingBox();
+    const viewport = page.viewportSize();
+
+    // Pinned to the bottom of the screen, not scrolled off with the content.
+    assert.ok(box.y + box.height <= viewport.height + 1, "the tab bar should sit within the viewport");
+
+    // Touch targets large enough to hit: the usual guidance is 44px.
+    const heights = await bar.locator("button").evaluateAll((nodes) =>
+      nodes.map((node) => node.getBoundingClientRect().height)
+    );
+    for (const height of heights) {
+      assert.ok(height >= 44, `a tab is only ${Math.round(height)}px tall`);
+    }
+  } finally {
+    await context.close();
+  }
+});
+
+test("the 3D backdrop is decorative: inert, hidden from assistive tech, and dropped for reduced motion", async () => {
+  const { context, page } = await openPhone(OFFICE);
+  try {
+    await page.goto(baseUrl);
+    const scene = page.locator(".auth .scene");
+    await scene.waitFor({ timeout: 10000 });
+
+    assert.equal(await scene.getAttribute("aria-hidden"), "true");
+    assert.equal(
+      await scene.evaluate((node) => getComputedStyle(node).pointerEvents),
+      "none",
+      "the backdrop must never intercept a tap meant for the form"
+    );
+    assert.ok((await scene.locator(".shape").count()) > 0);
+  } finally {
+    await context.close();
+  }
+
+  // Someone who asked for less motion gets no floating shapes at all.
+  const reduced = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    reducedMotion: "reduce",
+    locale: "en-GB",
+  });
+  const reducedPage = await reduced.newPage();
+  try {
+    await reducedPage.goto(baseUrl);
+    await reducedPage.locator(".auth .card").waitFor({ timeout: 10000 });
+    assert.equal(await reducedPage.locator(".shape").count(), 0, "no shapes should be built at all");
+  } finally {
+    await reduced.close();
+  }
+});

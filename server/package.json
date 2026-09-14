@@ -1,7 +1,7 @@
 {
   "name": "attendance-management-server",
   "version": "1.0.0",
-  "description": "Geofenced office attendance manager - API server",
+  "description": "weTech Attendance Management - API server",
   "main": "index.js",
   "private": true,
   "engines": { "node": ">=18.0.0" },

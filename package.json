@@ -2,7 +2,7 @@
   "name": "attendance-management",
   "version": "1.0.0",
   "private": true,
-  "description": "Geofenced office attendance manager: GPS check-in/out PWA, lateness and absence tracking, leave approvals and Excel reports",
+  "description": "weTech Attendance Management: geofenced GPS check-in/out PWA, lateness and absence tracking, leave approvals and Excel reports",
   "engines": { "node": ">=18.0.0" },
   "scripts": {
     "start": "node server/index.js",

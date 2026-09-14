@@ -12,19 +12,46 @@ const {
   hashPassword,
   requireAuth,
 } = require("../../helpers/auth");
+const env = require("../../config/env");
 const { collection, COLLECTIONS } = require("../../config/db");
 const { publicUser } = require("../employees/employees.service");
 const settingsService = require("../settings/settings.service");
 
 const router = express.Router();
 
-// Password guessing is the one attack this app is really exposed to.
+/**
+ * An IPv6 client can rotate the low bits of its address at will, so the
+ * network prefix is the meaningful unit; IPv4 addresses are used whole.
+ */
+function ipBucket(ip) {
+  const address = String(ip || "unknown").replace(/^::ffff:/, "");
+  if (!address.includes(":")) return address;
+  return address.split(":").slice(0, 4).join(":") + "::/64";
+}
+
+/**
+ * Password guessing is the one attack this app is really exposed to — but a
+ * whole office shares one public IP address, so limiting by IP alone would
+ * mean the eleventh person to sign in each morning is locked out by their
+ * colleagues. The budget is per account per network, and only failures spend
+ * it, so ordinary sign-ins never count towards it.
+ */
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 10,
+  limit: env.loginAttemptLimit,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => `${ipBucket(req.ip)}|${String(req.body?.email || "").toLowerCase().trim()}`,
+  // The key is deliberately not a bare IP address, so the built-in check for
+  // one does not apply here.
+  validate: { ip: false },
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: { code: "too_many_attempts", message: "Too many sign-in attempts. Try again in 15 minutes." } },
+  message: {
+    error: {
+      code: "too_many_attempts",
+      message: "Too many failed sign-in attempts for this account. Try again in 15 minutes.",
+    },
+  },
 });
 
 router.post(
