@@ -2,24 +2,52 @@
 
 require("dotenv").config();
 
-const required = (name, fallback) => {
-  const value = process.env[name] ?? fallback;
-  if (value === undefined || value === "") {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value;
-};
-
 const isProduction = process.env.NODE_ENV === "production";
 // On Vercel (and any other serverless host) there is no long-lived process:
 // no in-process cron, and connection pools must be kept small.
 const isServerless = !!process.env.VERCEL;
 
+/**
+ * Every configuration problem, gathered before anything is thrown.
+ *
+ * Reporting them one at a time turns a first deployment into several rounds of
+ * "fix one variable, redeploy, discover the next".
+ */
+const problems = [];
+
+const required = (name, fallback) => {
+  // An empty variable is not a value: `JWT_SECRET=` in a .env file must fall
+  // back the same way an absent one does, which `??` would not do.
+  const raw = process.env[name];
+  const value = raw === undefined || raw === "" ? fallback : raw;
+  if (value === undefined || value === "") {
+    problems.push(`${name} is not set.`);
+    return "";
+  }
+  return value;
+};
+
 // A weak JWT secret is the difference between "attendance app" and "anyone can
 // mint an admin token", so refuse to boot on the placeholder in production.
 const JWT_SECRET = required("JWT_SECRET", isProduction ? undefined : "dev-only-insecure-secret");
-if (isProduction && JWT_SECRET.length < 32) {
-  throw new Error("JWT_SECRET must be at least 32 characters in production");
+if (isProduction && JWT_SECRET && JWT_SECRET.length < 32) {
+  problems.push(
+    `JWT_SECRET is only ${JWT_SECRET.length} characters; production requires at least 32.`
+  );
+}
+
+if (problems.length > 0) {
+  const error = new Error(
+    `The server is not configured correctly:\n` +
+      problems.map((problem) => `  - ${problem}`).join("\n") +
+      `\n\nSet these in your host's environment settings` +
+      (isServerless ? " (Vercel: Project → Settings → Environment Variables), then redeploy." : ".") +
+      `\nGenerate a secret with:` +
+      `\n  node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`
+  );
+  error.code = "configuration_error";
+  error.problems = problems;
+  throw error;
 }
 
 module.exports = {

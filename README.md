@@ -154,6 +154,12 @@ Set these environment variables (Project → Settings → Environment Variables)
 | `DEFAULT_TIMEZONE` | e.g. `Africa/Addis_Ababa` |
 | `ADMIN_EMAIL` | The first admin account, created on first request |
 | `ADMIN_PASSWORD` | Its temporary password — you change it at first sign-in |
+
+**Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` before the first successful request.**
+The admin account is created once, the first time the app reaches the database,
+and only if no admin exists yet. If you let it run without them, it creates
+`admin@office.local` with the password `ChangeMe123!` — which is the account
+you would then have to sign in with.
 | `CRON_SECRET` | Another long random string; Vercel sends it to the job endpoints |
 
 `NODE_ENV` is set to `production` by Vercel automatically, which is what makes
@@ -197,9 +203,14 @@ Open `https://your-app.vercel.app/api/health`. A working deployment answers:
 - **`"path"` shows something other than what you requested** — the host is
   routing to the function but discarding the original URL, so every route
   would 404. The rewrite in `vercel.json` is what preserves it.
+- **503 `configuration_error`** — the response lists exactly which environment
+  variables are missing or invalid. Set them and redeploy.
 - **503 with a database message** — the app is running fine and cannot reach
   MongoDB. Check `MONGO_URI`, and that Atlas *Network Access* allows
   `0.0.0.0/0`.
+- **500 on every API call** — an older deployment. Configuration problems now
+  answer 503 with the reason; if you still get a blank 500, the deployment
+  logs (Vercel → Deployments → the deployment → Runtime Logs) have the stack.
 
 A working deployment shows the sign-in screen at the root URL.
 

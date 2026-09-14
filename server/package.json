@@ -10,7 +10,7 @@
     "start": "node index.js",
     "dev": "node --watch index.js",
     "seed": "node scripts/seed.js",
-    "test": "node --test tests/domain.test.js tests/api.test.js tests/serverless.test.js",
+    "test": "node --test tests/domain.test.js tests/api.test.js tests/serverless.test.js tests/config.test.js",
     "test:e2e": "node --test --test-timeout=180000 tests/browser.test.js",
     "icons": "node ../tools/make-icons.js"
   }
