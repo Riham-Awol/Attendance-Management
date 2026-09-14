@@ -1,26 +1,20 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "version": 2,
-  "builds": [
-    { "src": "api/index.js", "use": "@vercel/node" },
-    { "src": "web/**", "use": "@vercel/static" }
+  "framework": null,
+  "buildCommand": null,
+  "outputDirectory": "public",
+  "functions": {
+    "api/index.js": { "maxDuration": 30 }
+  },
+  "rewrites": [
+    { "source": "/api", "destination": "/api" },
+    { "source": "/api/(.*)", "destination": "/api" }
   ],
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/api/index.js" },
+  "headers": [
     {
-      "src": "/service-worker.js",
-      "dest": "/web/service-worker.js",
-      "headers": { "Cache-Control": "no-cache, no-store, must-revalidate" }
-    },
-    { "src": "/manifest.webmanifest", "dest": "/web/manifest.webmanifest" },
-    {
-      "src": "/icons/(.*)",
-      "dest": "/web/icons/$1",
-      "headers": { "Cache-Control": "public, max-age=604800" }
-    },
-    { "src": "/css/(.*)", "dest": "/web/css/$1" },
-    { "src": "/js/(.*)", "dest": "/web/js/$1" },
-    { "src": "/(.*)", "dest": "/web/index.html" }
+      "source": "/service-worker.js",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }]
+    }
   ],
   "crons": [
     { "path": "/api/cron/morning", "schedule": "30 7 * * *" },

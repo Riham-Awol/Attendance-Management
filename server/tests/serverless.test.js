@@ -62,7 +62,13 @@ test("the environment reports itself as serverless and disables in-process cron"
 test("the API still answers on the serverless path", async () => {
   const response = await get("/api/health");
   assert.equal(response.status, 200);
-  assert.equal((await response.json()).ok, true);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.serverless, true);
+  // The echoed path is the deployment check: if a host rewrites /api/* to the
+  // function but drops the original URL, every route would 404 and this is
+  // where that shows up.
+  assert.equal(body.path, "/api/health");
 });
 
 test("a cron endpoint refuses an unauthenticated call", async () => {

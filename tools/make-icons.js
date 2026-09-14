@@ -125,7 +125,7 @@ function crc32(buffer) {
   return crc ^ -1;
 }
 
-const outDir = path.join(__dirname, "..", "web", "icons");
+const outDir = path.join(__dirname, "..", "public", "icons");
 fs.mkdirSync(outDir, { recursive: true });
 
 const targets = [

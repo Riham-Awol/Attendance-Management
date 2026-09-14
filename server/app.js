@@ -53,7 +53,17 @@ function createApp() {
     rateLimit({ windowMs: 60 * 1000, limit: 240, standardHeaders: true, legacyHeaders: false })
   );
 
-  app.get("/api/health", (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+  // Doubles as a deployment check: `path` echoes the URL the app actually
+  // received, which is the fastest way to see that a host is routing to the
+  // app rather than serving its source files.
+  app.get("/api/health", (req, res) =>
+    res.json({
+      ok: true,
+      time: new Date().toISOString(),
+      path: req.originalUrl,
+      serverless: env.isServerless,
+    })
+  );
 
   app.use("/api/auth", require("./modules/auth/auth.routes"));
   app.use("/api/employees", require("./modules/employees/employees.routes"));
@@ -77,7 +87,9 @@ function createApp() {
 
   // The PWA itself. The service worker must not be cached or an update can
   // never reach a phone that already installed the app.
-  const webRoot = path.join(__dirname, "..", "web");
+  // Named "public" because that is the directory Vercel serves from its CDN
+  // with no configuration; locally, Express serves the same files.
+  const webRoot = path.join(__dirname, "..", "public");
   app.get("/service-worker.js", (_req, res) => {
     res.setHeader("Cache-Control", "no-cache");
     res.sendFile(path.join(webRoot, "service-worker.js"));

@@ -17,7 +17,7 @@ them from `tools/make-icons.js` if you want to change the colour or mark.
 │   ├── domain/      Pure attendance rules (geofencing, shifts, lateness)
 │   ├── modules/     One folder per feature: routes + service
 │   └── tests/       Unit, service, serverless and browser tests
-├── web/             The PWA (no build step — plain ES modules)
+├── public/          The PWA (no build step — plain ES modules)
 ├── tools/           Icon generator
 └── vercel.json      Routing and cron schedule for Vercel
 ```
@@ -128,8 +128,24 @@ own, and it cannot reach a MongoDB on your laptop. The free M0 tier is enough.
 In Atlas, under *Network Access*, allow `0.0.0.0/0`: Vercel functions do not
 have fixed IP addresses, so there is nothing narrower to allow.
 
-Then import the repo at [vercel.com/new](https://vercel.com/new) and set these
-environment variables (Project → Settings → Environment Variables):
+Then import the repo at [vercel.com/new](https://vercel.com/new).
+
+**Leave every build setting at its default.** In particular:
+
+| Setting | Value |
+|---|---|
+| Root Directory | `./` — the repository root, **not** `server/` |
+| Framework Preset | Other |
+| Build Command | empty (there is no build step) |
+| Output Directory | `public` |
+
+Pointing Root Directory at `server/` is the one setting that breaks this
+deployment in a confusing way: Vercel finds no configuration there, treats the
+folder as a pile of static files, and serves the *source of `index.js`* as
+plain text instead of running anything. If you see JavaScript source in the
+browser, that is what has happened.
+
+Set these environment variables (Project → Settings → Environment Variables):
 
 | Variable | Value |
 |---|---|
@@ -139,6 +155,9 @@ environment variables (Project → Settings → Environment Variables):
 | `ADMIN_EMAIL` | The first admin account, created on first request |
 | `ADMIN_PASSWORD` | Its temporary password — you change it at first sign-in |
 | `CRON_SECRET` | Another long random string; Vercel sends it to the job endpoints |
+
+`NODE_ENV` is set to `production` by Vercel automatically, which is what makes
+the server reject a weak `JWT_SECRET` — so make it a real random string.
 
 Leave the build and output settings alone — there is no build step. Deploy,
 open the URL, and sign in.
@@ -163,6 +182,26 @@ open the URL, and sign in.
   on a single server. For a real deployment, back it with a shared store.
 - **Cold starts.** The first request after a quiet spell reconnects to
   MongoDB and takes a second or two. Subsequent requests are fast.
+
+**Checking a deployment**
+
+Open `https://your-app.vercel.app/api/health`. A working deployment answers:
+
+```json
+{ "ok": true, "path": "/api/health", "serverless": true, ... }
+```
+
+- **JavaScript source in the browser** — Root Directory is wrong; see above.
+- **`404: NOT_FOUND`** — the `public/` directory was not used as the output
+  directory.
+- **`"path"` shows something other than what you requested** — the host is
+  routing to the function but discarding the original URL, so every route
+  would 404. The rewrite in `vercel.json` is what preserves it.
+- **503 with a database message** — the app is running fine and cannot reach
+  MongoDB. Check `MONGO_URI`, and that Atlas *Network Access* allows
+  `0.0.0.0/0`.
+
+A working deployment shows the sign-in screen at the root URL.
 
 ### Anywhere that runs a normal Node process
 
