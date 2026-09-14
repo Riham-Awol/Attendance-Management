@@ -400,3 +400,21 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* A deployment that is missing configuration or cannot reach its database.
+   Deliberately persistent — this is the reason nothing works. */
+.setup-problem {
+  background: var(--bad-soft);
+  color: var(--bad);
+  border: 1px solid currentColor;
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.setup-problem code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+}

@@ -56,12 +56,42 @@ let main;
 
 /* ── Auth screen ─────────────────────────────────────────────────────── */
 
+/**
+ * A server-side setup problem (missing configuration, unreachable database)
+ * is not a "wrong password" and must not vanish with a toast: it is the whole
+ * reason the app will not work, and the person reading it is usually the one
+ * who has to fix it. Shown in place, with the server's own detail and hint.
+ */
+function setupProblem(error) {
+  const lines = [
+    el("strong", {}, "This deployment is not ready yet"),
+    ...String(error.message || "")
+      .split("\n")
+      .filter((line) => line.trim())
+      .map((line) => el("div", { class: "small" }, line)),
+  ];
+
+  if (error.hint) {
+    lines.push(el("div", { class: "small", style: "margin-top:8px" }, error.hint));
+  }
+  if (error.detail) {
+    lines.push(
+      el("code", { class: "small", style: "margin-top:8px;display:block;opacity:.75;word-break:break-word" }, error.detail)
+    );
+  }
+
+  return el("div", { class: "setup-problem" }, lines);
+}
+
 function renderAuth(message) {
   const email = el("input", { type: "email", name: "email", required: true, autocomplete: "username", placeholder: "you@company.com" });
   const password = el("input", { type: "password", name: "password", required: true, autocomplete: "current-password" });
   const button = el("button", { class: "btn-primary btn-block", type: "submit" }, "Sign in");
 
+  const problemSlot = el("div", {});
+
   const form = el("form", { class: "stack" }, [
+    problemSlot,
     field("Email", email),
     field("Password", password),
     button,
@@ -81,7 +111,10 @@ function renderAuth(message) {
         await openPasswordForm({ forced: true });
       }
     } catch (error) {
-      toast(error.message, "error");
+      // 503 means the server itself is not set up; anything else is about
+      // these credentials and belongs on a toast.
+      if (error.status === 503) mount(problemSlot, setupProblem(error));
+      else toast(error.message, "error");
       button.disabled = false;
       button.textContent = "Sign in";
     }

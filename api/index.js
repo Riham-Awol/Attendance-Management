@@ -20,9 +20,11 @@ let app = null;
 let connect = null;
 let bootstrapAdmin = null;
 let isServerless = false;
+let describeDatabaseError = null;
 
 try {
   const { createApp } = require("../server/app");
+  ({ describeDatabaseError } = require("../server/helpers/startup-diagnostics"));
   ({ connect } = require("../server/config/db"));
   ({ bootstrapAdmin } = require("../server/scripts/bootstrap"));
   ({ isServerless } = require("../server/config/env"));
@@ -75,13 +77,14 @@ module.exports = async (req, res) => {
   try {
     await prepare();
   } catch (err) {
-    console.error("[attendance] could not reach the database:", err);
-    return fail(
-      res,
-      503,
-      "database_unavailable",
-      "The server could not reach its database. Check MONGO_URI, and that this deployment's IP is allowed in MongoDB Atlas (Network Access → 0.0.0.0/0)."
-    );
+    const described = describeDatabaseError(err);
+    // Logged redacted too: a connection string in the deployment logs is a
+    // password sitting in a place people paste from.
+    console.error(`[attendance] ${described.detail}`);
+    return fail(res, 503, "database_unavailable", described.message, {
+      detail: described.detail,
+      hint: described.hint,
+    });
   }
 
   return app(req, res);

@@ -19,11 +19,17 @@ export const setToken = (token) => {
 
 /** Thrown for any non-2xx response, carrying the server's own message. */
 export class ApiError extends Error {
-  constructor(status, code, message, details) {
+  constructor(status, code, message, payload = {}) {
     super(message);
     this.status = status;
     this.code = code;
-    this.details = details;
+    // Field-level validation errors.
+    this.details = payload.details;
+    // Set by the deployment diagnostics: what went wrong underneath, and what
+    // to do about it.
+    this.detail = payload.detail;
+    this.hint = payload.hint;
+    this.problems = payload.problems;
   }
 }
 
@@ -63,7 +69,7 @@ async function request(method, path, body, options = {}) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = payload.error || {};
-    throw new ApiError(response.status, error.code || "error", error.message || "Something went wrong", error.details);
+    throw new ApiError(response.status, error.code || "error", error.message || "Something went wrong", error);
   }
   return payload;
 }

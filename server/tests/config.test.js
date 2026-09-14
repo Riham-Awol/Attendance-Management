@@ -97,3 +97,63 @@ test("the serverless entry answers a misconfiguration with 503 and the reason", 
   assert.match(body.error.message, /JWT_SECRET is not set/);
   assert.deepEqual(body.error.problems, ["JWT_SECRET is not set."]);
 });
+
+test("a connection string's password never reaches a response or a log", () => {
+  const { redact } = require("../helpers/startup-diagnostics");
+  const leaked = "MongoServerError connecting to mongodb+srv://admin:S3cr3t!@cluster0.x.mongodb.net/db";
+
+  const safe = redact(leaked);
+  assert.ok(!safe.includes("S3cr3t!"), `password survived redaction: ${safe}`);
+  assert.ok(!safe.includes("admin:"), "username and password are removed together");
+  // The host is kept — that is the part worth seeing.
+  assert.match(safe, /cluster0\.x\.mongodb\.net/);
+  assert.match(safe, /<credentials>/);
+
+  // Plain messages are untouched.
+  assert.equal(redact("connect ECONNREFUSED 127.0.0.1:27017"), "connect ECONNREFUSED 127.0.0.1:27017");
+});
+
+test("each common database misconfiguration gets its own remedy", () => {
+  const { describeDatabaseError } = require("../helpers/startup-diagnostics");
+
+  const authError = Object.assign(new Error("bad auth : authentication failed"), { name: "MongoServerError" });
+  assert.match(describeDatabaseError(authError).hint, /username or password/);
+
+  const parseError = Object.assign(new Error("Invalid scheme"), { name: "MongoParseError" });
+  assert.match(describeDatabaseError(parseError).hint, /valid connection string/);
+
+  const reachError = Object.assign(new Error("connection timed out"), { name: "MongoServerSelectionError" });
+  assert.match(describeDatabaseError(reachError).hint, /Network Access/);
+
+  // Anything unrecognised still says something useful rather than nothing.
+  assert.match(describeDatabaseError(new Error("something else")).hint, /Check MONGO_URI/);
+});
+
+test("the serverless entry reports an unreachable database with a hint, not a bare 503", () => {
+  const script = `
+    const handler = require("./api/index.js");
+    const res = {
+      statusCode: 200,
+      setHeader() {},
+      end(body) { console.log(JSON.stringify({ status: this.statusCode, body: JSON.parse(body) })); },
+    };
+    handler({ url: "/api/auth/login", method: "POST", headers: {} }, res);
+  `;
+  const result = loadIn(
+    {
+      NODE_ENV: "production",
+      VERCEL: "1",
+      JWT_SECRET: "x".repeat(48),
+      // A port nothing listens on: server selection fails fast.
+      MONGO_URI: "mongodb://127.0.0.1:27099/attendance",
+    },
+    script
+  );
+
+  const { status, body } = JSON.parse(result.stdout.trim().split("\n").pop());
+  assert.equal(status, 503);
+  assert.equal(body.error.code, "database_unavailable");
+  assert.match(body.error.hint, /Network Access|Check MONGO_URI/);
+  assert.ok(body.error.detail, "the underlying driver error should be reported");
+  assert.ok(!/:.*@/.test(body.error.detail), "no credentials in the detail");
+});

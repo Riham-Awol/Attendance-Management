@@ -292,3 +292,55 @@ test("a wrong password is rejected without revealing whether the account exists"
     await context.close();
   }
 });
+
+
+test("a setup failure is shown on the sign-in screen, not left in the console", async () => {
+  // A server whose API answers 503 the way a misconfigured deployment does.
+  const http = require("http");
+  const broken = http.createServer((req, res) => {
+    if (req.url.startsWith("/api/")) {
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          error: {
+            code: "database_unavailable",
+            message: "The server is running but could not reach its database.",
+            detail: "MongoServerSelectionError: connection timed out",
+            hint: "On Atlas this is almost always Network Access: a serverless host has no fixed IP.",
+          },
+        })
+      );
+      return;
+    }
+    // Everything else comes from the real app, so the page under test is real.
+    realApp(req, res);
+  });
+  const realApp = createApp();
+  broken.listen(0);
+  await new Promise((resolve) => broken.once("listening", resolve));
+  const brokenUrl = `http://127.0.0.1:${broken.address().port}`;
+
+  const { context, page } = await openPhone(OFFICE);
+  try {
+    await page.goto(brokenUrl);
+    await page.getByLabel("Email").fill("someone@example.com");
+    await page.getByLabel("Password").fill("password123");
+    await page.getByRole("button", { name: "Sign in" }).click();
+
+    const panel = page.locator(".setup-problem");
+    await panel.waitFor({ timeout: 15000 });
+    const text = await panel.textContent();
+
+    assert.match(text, /not ready yet/);
+    assert.match(text, /could not reach its database/);
+    assert.match(text, /Network Access/, "the remedy must be on screen");
+    assert.match(text, /MongoServerSelectionError/, "the underlying error should be visible");
+
+    // It must still be there a few seconds later: this is not a toast.
+    await page.waitForTimeout(6000);
+    assert.equal(await panel.isVisible(), true, "a setup failure must not disappear on its own");
+  } finally {
+    await context.close();
+    await new Promise((resolve) => broken.close(resolve));
+  }
+});
