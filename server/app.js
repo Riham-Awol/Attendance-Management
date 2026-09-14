@@ -62,8 +62,18 @@ function createApp() {
   app.use("/api/settings", require("./modules/settings/settings.routes"));
   app.use("/api/reports", require("./modules/reports/reports.routes"));
   app.use("/api/dashboard", require("./modules/dashboard/dashboard.routes"));
+  app.use("/api/cron", require("./modules/cron/cron.routes"));
 
   app.use("/api", (_req, _res, next) => next(ApiError.notFound("No such endpoint")));
+
+  // On a serverless host the platform serves the PWA straight from its CDN and
+  // only /api/* ever reaches this function, so there are no static files to
+  // hand out here — and no index.html in the bundle to fall back on.
+  if (env.isServerless) {
+    app.use((_req, _res, next) => next(ApiError.notFound("No such endpoint")));
+    app.use(errorHandler);
+    return app;
+  }
 
   // The PWA itself. The service worker must not be cached or an update can
   // never reach a phone that already installed the app.

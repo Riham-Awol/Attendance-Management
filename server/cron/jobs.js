@@ -209,9 +209,21 @@ function start() {
   return jobs;
 }
 
+/** Nobody is missing on a day nobody was due in. */
+async function isWorkingDay(now) {
+  const settings = await settingsService.getSettings();
+  const shift = await settingsService.getDefaultShift();
+  const today = dateKey(now, settings.timeZone);
+
+  if (!isWorkDay(shift, today)) return { working: false, reason: "not_a_work_day" };
+  const holidays = await settingsService.holidaySet(today, today);
+  if (holidays.has(today)) return { working: false, reason: "holiday" };
+  return { working: true };
+}
+
 /**
  * Fire the no-show alert in the quarter-hour that matches the configured local
- * time, and only on a working day.
+ * time. Used by the in-process scheduler, which ticks every 15 minutes.
  */
 async function noShowAlertIfDue(now = new Date()) {
   const settings = await settingsService.getSettings();
@@ -220,14 +232,46 @@ async function noShowAlertIfDue(now = new Date()) {
   const target = h * 60 + m;
   if (nowMinutes < target || nowMinutes >= target + 15) return { skipped: "not_due" };
 
-  const shift = await settingsService.getDefaultShift();
-  const today = dateKey(now, settings.timeZone);
-  if (!isWorkDay(shift, today)) return { skipped: "not_a_work_day" };
-
-  const holidays = await settingsService.holidaySet(today, today);
-  if (holidays.has(today)) return { skipped: "holiday" };
+  const { working, reason } = await isWorkingDay(now);
+  if (!working) return { skipped: reason };
 
   return noShowAlert(now);
 }
 
-module.exports = { start, autoCheckout, noShowAlert, noShowAlertIfDue, monthlyReport, alertRecipients };
+/**
+ * The morning job, for a scheduler that fires once at a set time (Vercel Cron)
+ * rather than polling. The caller has already decided it is the right hour, so
+ * there is no time-window check here — only the working-day one.
+ */
+async function runMorningJobs(now = new Date()) {
+  const { working, reason } = await isWorkingDay(now);
+  if (!working) return { skipped: reason };
+  return { noShowAlert: await noShowAlert(now) };
+}
+
+/**
+ * The end-of-day job: close shifts nobody checked out of, and on the first of
+ * the month send the report for the month just gone.
+ */
+async function runEveningJobs(now = new Date()) {
+  const settings = await settingsService.getSettings();
+  const today = dateKey(now, settings.timeZone);
+  const result = { autoCheckout: await autoCheckout(now) };
+
+  if (today.endsWith("-01")) {
+    result.monthlyReport = await monthlyReport(now);
+  }
+  return result;
+}
+
+module.exports = {
+  start,
+  autoCheckout,
+  noShowAlert,
+  noShowAlertIfDue,
+  monthlyReport,
+  alertRecipients,
+  isWorkingDay,
+  runMorningJobs,
+  runEveningJobs,
+};

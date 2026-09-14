@@ -5,6 +5,7 @@ const env = require("./env");
 
 let client;
 let db;
+let connecting;
 
 const COLLECTIONS = {
   users: "users",
@@ -17,13 +18,37 @@ const COLLECTIONS = {
   auditLogs: "auditLogs",
 };
 
+/**
+ * Connect once and reuse.
+ *
+ * The in-flight promise is memoised, not just the result: on a serverless
+ * platform several requests can hit a cold instance at once, and without this
+ * each would open its own client and leak connections until Atlas refuses new
+ * ones. A small pool suits serverless, where many instances each hold one.
+ */
 async function connect(uri = env.mongoUri, dbName = env.dbName) {
   if (db) return db;
-  client = new MongoClient(uri, { maxPoolSize: 10 });
-  await client.connect();
-  db = client.db(dbName);
-  await ensureIndexes(db);
-  return db;
+  if (connecting) return connecting;
+
+  connecting = (async () => {
+    const created = new MongoClient(uri, {
+      maxPoolSize: env.isServerless ? 5 : 10,
+      serverSelectionTimeoutMS: 10000,
+    });
+    await created.connect();
+    client = created;
+    db = created.db(dbName);
+    await ensureIndexes(db);
+    return db;
+  })();
+
+  try {
+    return await connecting;
+  } catch (err) {
+    // Let the next request try again rather than caching the failure forever.
+    connecting = undefined;
+    throw err;
+  }
 }
 
 function getDb() {
@@ -63,6 +88,7 @@ async function close() {
   if (client) await client.close();
   client = undefined;
   db = undefined;
+  connecting = undefined;
 }
 
 module.exports = { connect, getDb, close, collection, COLLECTIONS, ensureIndexes, __setDbForTests };

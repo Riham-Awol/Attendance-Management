@@ -12,13 +12,18 @@ The app icons are generated, not committed by hand: `npm run icons` redraws
 them from `tools/make-icons.js` if you want to change the colour or mark.
 
 ```
+├── api/             Vercel serverless entry point
 ├── server/          Node + Express + MongoDB API, and the cron jobs
 │   ├── domain/      Pure attendance rules (geofencing, shifts, lateness)
 │   ├── modules/     One folder per feature: routes + service
-│   └── tests/       Unit, service and browser tests
+│   └── tests/       Unit, service, serverless and browser tests
 ├── web/             The PWA (no build step — plain ES modules)
-└── tools/           Icon generator
+├── tools/           Icon generator
+└── vercel.json      Routing and cron schedule for Vercel
 ```
+
+Dependencies live in the root `package.json`, so one `npm install` covers the
+API, the tests and the deployment.
 
 ## What it does
 
@@ -112,14 +117,66 @@ Employees should choose **Allow while using the app** when asked for location.
 
 ## Deploying
 
-The server serves the API and the PWA together, so it deploys as a single
-Node app to Render, Railway, Fly.io, a VPS, or anywhere else that runs Node.
+### Vercel
 
-- Set every variable from `.env.example` in the host's environment settings.
+The repo is set up for Vercel: `api/index.js` runs the API as a serverless
+function, `web/` is served straight from the CDN, and `vercel.json` wires the
+two together plus the scheduled jobs.
+
+You need a **MongoDB Atlas** database first — Vercel has no database of its
+own, and it cannot reach a MongoDB on your laptop. The free M0 tier is enough.
+In Atlas, under *Network Access*, allow `0.0.0.0/0`: Vercel functions do not
+have fixed IP addresses, so there is nothing narrower to allow.
+
+Then import the repo at [vercel.com/new](https://vercel.com/new) and set these
+environment variables (Project → Settings → Environment Variables):
+
+| Variable | Value |
+|---|---|
+| `MONGO_URI` | Your Atlas connection string, including the password |
+| `JWT_SECRET` | A long random string — `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` |
+| `DEFAULT_TIMEZONE` | e.g. `Africa/Addis_Ababa` |
+| `ADMIN_EMAIL` | The first admin account, created on first request |
+| `ADMIN_PASSWORD` | Its temporary password — you change it at first sign-in |
+| `CRON_SECRET` | Another long random string; Vercel sends it to the job endpoints |
+
+Leave the build and output settings alone — there is no build step. Deploy,
+open the URL, and sign in.
+
+**What is different on Vercel**
+
+- **The scheduled jobs run over HTTP, not in the process.** A serverless
+  function only exists while it is handling a request, so `node-cron` is
+  switched off automatically (`VERCEL` is set in the environment) and Vercel
+  Cron calls `/api/cron/morning` and `/api/cron/evening` instead. Those
+  endpoints refuse to run unless `CRON_SECRET` is set and presented, so nobody
+  can auto-close everyone's shift by visiting a URL.
+- **The schedules are in UTC** and the free plan runs each job once a day.
+  The defaults are `07:30` and `20:00` UTC — for a UTC+3 office that is 10:30
+  and 23:00 local. Adjust the `crons` entries in `vercel.json` to suit your
+  own timezone.
+- **Auto-checkout runs nightly rather than hourly.** On a plan with more
+  frequent crons, change the evening schedule to `0 * * * *` for the hourly
+  behaviour you get when self-hosting.
+- **Rate limiting is per instance.** Vercel runs many instances, so the
+  sign-in limit is looser in practice than the 10-per-15-minutes it enforces
+  on a single server. For a real deployment, back it with a shared store.
+- **Cold starts.** The first request after a quiet spell reconnects to
+  MongoDB and takes a second or two. Subsequent requests are fast.
+
+### Anywhere that runs a normal Node process
+
+Render, Railway, Fly.io, or your own VPS need none of the above: the server
+serves the API and the PWA together and runs its own cron.
+
+- Set every variable from `server/.env.example` in the host's settings.
 - Set `NODE_ENV=production` — the server then refuses to start with a weak
   `JWT_SECRET`.
 - Point `MONGO_URI` at Atlas or your own MongoDB.
 - Make sure HTTPS is on. Most of these hosts do it for you.
+
+This is the better home for the app long term: the jobs run on the schedule
+they were designed for, and there are no cold starts.
 
 If you host the PWA separately from the API, set `CORS_ORIGINS` to the
 frontend's URL.

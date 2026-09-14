@@ -11,6 +11,9 @@ const required = (name, fallback) => {
 };
 
 const isProduction = process.env.NODE_ENV === "production";
+// On Vercel (and any other serverless host) there is no long-lived process:
+// no in-process cron, and connection pools must be kept small.
+const isServerless = !!process.env.VERCEL;
 
 // A weak JWT secret is the difference between "attendance app" and "anyone can
 // mint an admin token", so refuse to boot on the placeholder in production.
@@ -21,6 +24,7 @@ if (isProduction && JWT_SECRET.length < 32) {
 
 module.exports = {
   isProduction,
+  isServerless,
   port: Number(process.env.PORT || 4000),
   mongoUri: required("MONGO_URI", "mongodb://127.0.0.1:27017"),
   dbName: process.env.DB_NAME || "office_attendance",
@@ -38,7 +42,12 @@ module.exports = {
     password: process.env.ADMIN_PASSWORD || "ChangeMe123!",
   },
   cron: {
-    enabled: process.env.CRON_ENABLED !== "false",
+    // In-process cron only makes sense where a process stays up. On a
+    // serverless host the jobs are driven by scheduled HTTP calls instead.
+    enabled: process.env.CRON_ENABLED !== "false" && !isServerless,
+    // Shared secret Vercel Cron sends as `Authorization: Bearer …`, so the job
+    // endpoints cannot be triggered by anyone who guesses the URL.
+    secret: process.env.CRON_SECRET || "",
     // Minutes after a shift ends before an open check-in is auto-closed.
     autoCheckoutGraceMinutes: Number(process.env.AUTO_CHECKOUT_GRACE_MINUTES || 120),
   },

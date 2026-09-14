@@ -1,0 +1,29 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "builds": [
+    { "src": "api/index.js", "use": "@vercel/node" },
+    { "src": "web/**", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/index.js" },
+    {
+      "src": "/service-worker.js",
+      "dest": "/web/service-worker.js",
+      "headers": { "Cache-Control": "no-cache, no-store, must-revalidate" }
+    },
+    { "src": "/manifest.webmanifest", "dest": "/web/manifest.webmanifest" },
+    {
+      "src": "/icons/(.*)",
+      "dest": "/web/icons/$1",
+      "headers": { "Cache-Control": "public, max-age=604800" }
+    },
+    { "src": "/css/(.*)", "dest": "/web/css/$1" },
+    { "src": "/js/(.*)", "dest": "/web/js/$1" },
+    { "src": "/(.*)", "dest": "/web/index.html" }
+  ],
+  "crons": [
+    { "path": "/api/cron/morning", "schedule": "30 7 * * *" },
+    { "path": "/api/cron/evening", "schedule": "0 20 * * *" }
+  ]
+}
